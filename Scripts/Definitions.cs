@@ -12,8 +12,7 @@ public enum ProtectionLevel
 
 public interface IDefinition
 {
-    string d_id { get; set; }
-    string name { get; set; }
+    DefinitionNode node { get; set; }
     string briefDescription { get; set; }
     string detailedDescription { get; set; }
     ProtectionLevel protection { get; set; }
@@ -21,14 +20,22 @@ public interface IDefinition
 
 public class CompoundDefinition : IDefinition
 {
-    public string d_id { get; set; }
-    public string name { get; set; }
+    public DefinitionNode node { get; set; }
     public string briefDescription { get; set; }
     public string detailedDescription { get; set; }
     public ProtectionLevel protection { get; set; }
-
-    public string kind = string.Empty;
 }
+
+public class NamespaceDefinition : CompoundDefinition
+{
+    public string language = "unknown";
+}
+
+public class ClassDefinition : CompoundDefinition {}
+public class StructDefinition : CompoundDefinition {}
+public class InterfaceDefinition : CompoundDefinition {}
+public class EnumDefinition : CompoundDefinition {}
+
 
 public enum MemberKind
 {
@@ -38,25 +45,31 @@ public enum MemberKind
     Event,
     Property,
     Constructor,
+    Enum,
 }
 
-public class MemberDefinition : IDefinition
+public abstract class MemberDefinition : IDefinition
 {
-    public string d_id { get; set; }
-    public string name { get; set; }
+    public DefinitionNode node { get; set; }
     public string briefDescription { get; set; }
     public string detailedDescription { get; set; }
     public ProtectionLevel protection { get; set; }
 
-    public MemberKind kind = MemberKind._UNKNOWN_;
     public TypeDescription type = new TypeDescription();
-
     public bool isConst = false;
     public bool isStatic = false;
+}
 
+public class FunctionDefinition : MemberDefinition
+{
     // - function bits -
     public List<FunctionParameter> parameters = null;
 }
+
+public class VariableDefinition     : MemberDefinition {}
+public class PropertyDefinition     : MemberDefinition {}
+public class EventDefinition        : MemberDefinition {}
+public class EnumValueDefinition    : MemberDefinition {}
 
 public class TypeDescription
 {
