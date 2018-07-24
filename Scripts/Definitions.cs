@@ -7,7 +7,8 @@ public enum ProtectionLevel
     _UNKNOWN_ = 0,
     Public,
     Private,
-    Protected
+    Protected,
+    Internal
 }
 
 public interface IDefinition
@@ -66,12 +67,16 @@ public abstract class MemberDefinition : IDefinition
 
 public class FunctionDefinition : MemberDefinition
 {
-    // - function bits -
-    public List<FunctionParameter> parameters = null;
+    public List<FunctionParameter> parameters = new List<FunctionParameter>();
 }
 
 public class VariableDefinition     : MemberDefinition {}
-public class PropertyDefinition     : MemberDefinition {}
+public class PropertyDefinition     : MemberDefinition
+{
+    public ProtectionLevel getterProtection = ProtectionLevel._UNKNOWN_;
+    public ProtectionLevel setterProtection = ProtectionLevel._UNKNOWN_;
+}
+
 public class EventDefinition        : MemberDefinition {}
 public class EnumDefinition         : MemberDefinition {}
 public class EnumValueDefinition    : MemberDefinition {}
@@ -89,6 +94,5 @@ public class FunctionParameter
 {
     public string name;
     public TypeDescription type;
-
     public string description;
 }

@@ -5,7 +5,8 @@ using System.Collections.Generic;
 using System.IO;
 
 // TASKS
-// . add property get/set
+// . complete function return values
+// . complete detailed description
 // . remarks is in detailedDescription!
 // . add GitHub links
 // . layout/titling work
@@ -42,12 +43,15 @@ public static class Converter
         { "name", Converter.ProcessName },
         { "compoundname", Converter.ProcessCompoundName },
         { "basecompoundref", Converter.ProcessBaseCompoundRef },
+        { "param", Converter.ProcessParam },
     };
 
     private static List<string> nodesToSkip = new List<string>()
     {
         "#text",
-        "scope"
+        "scope",
+        "definition",
+        "argsstring"
     };
 
     public delegate IDefinition CreateDefinitionDelegate(XmlNode xmlNode);
@@ -55,11 +59,11 @@ public static class Converter
     private static Dictionary<string, CreateDefinitionDelegate> nodeKindCreationMap = new Dictionary<string, CreateDefinitionDelegate>()
     {
         { "namespace",  CreateNamespaceDefinition },
+        { "property",   CreatePropertyDefinition },
         { "class",      (n) => new ClassDefinition() },
         { "struct",     (n) => new StructDefinition() },
         { "interface",  (n) => new InterfaceDefinition() },
         { "variable",   (n) => new VariableDefinition() },
-        { "property",   (n) => new PropertyDefinition() },
         { "function",   (n) => new FunctionDefinition() },
         { "event",      (n) => new EventDefinition() },
         { "enum",       (n) => new EnumDefinition() },
@@ -304,7 +308,10 @@ public static class Converter
             outputLog.Append(".T<");
             foreach(XmlNode childNode in node.NextSibling.ChildNodes)
             {
-                parentDesc.templatedTypes.AddRange(ProcessTypeNode(childNode));
+                if(childNode.Name != "template")
+                {
+                    parentDesc.templatedTypes.AddRange(ProcessTypeNode(childNode));
+                }
             }
             outputLog.Append(">");
         }
@@ -374,7 +381,7 @@ public static class Converter
     // --------- [PROCESSING] ---------
     private static void ProcessChildNodes(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        outputLog.Append("Processing children of " + xmlNode.Name + " for parent " + (parentNode == null ? "NULL" : parentNode.name) + '\n');
+        outputLog.Append("Processing children of " + xmlNode.Name + " for parent [" + (parentNode == null ? "NULL" : parentNode.d_id) + "]\n");
 
         foreach(XmlNode xmlChildNode in xmlNode.ChildNodes)
         {
@@ -477,6 +484,19 @@ public static class Converter
         }
     }
 
+    private static void ProcessParam(XmlNode xmlNode, DefinitionNode parentNode)
+    {
+        FunctionParameter parameter = new FunctionParameter();
+
+        parameter.name = ParseXMLString(xmlNode["declname"].InnerXml);
+        parameter.type = ParseTypeDescription(xmlNode["type"]);
+
+        outputLog.Append(". adding param " + parameter.name + '\n');
+
+        FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
+        definition.parameters.Add(parameter);
+    }
+
     // --- Structure ---
     private static void ProcessCompound(XmlNode xmlNode, DefinitionNode parentNode)
     {
@@ -526,7 +546,8 @@ public static class Converter
 
         if(!parentNode.children.Contains(memberNode))
         {
-            outputLog.Append(". adding member node [" + memberId + "]\n");
+            outputLog.Append(". adding member node [" + memberId + "] to ["
+                             + parentNode.d_id + "]\n");
 
             parentNode.children.Add(memberNode);
         }
@@ -548,6 +569,11 @@ public static class Converter
             case "protected":
             {
                 definition.protection = ProtectionLevel.Protected;
+            }
+            break;
+            case "package":
+            {
+                definition.protection = ProtectionLevel.Internal;
             }
             break;
 
@@ -742,74 +768,46 @@ public static class Converter
         }
     }
 
-    private static void ProcessProperty(XmlNode xmlNode, DefinitionNode memberNode)
-    {
-        // // - get def -
-        // switch(xmlNode.Attributes["kind"].Value)
-        // {
-        //     case "variable":
-        //     {
-        //         memberDef.kind = MemberKind.Variable;
-        //     }
-        //     break;
-        //     case "function":
-        //     {
-        //         if(memberDef.type == null)
-        //         {
-        //             memberDef.kind = MemberKind.Constructor;
-        //         }
-        //         else
-        //         {
-        //             memberDef.kind = MemberKind.Method;
-        //         }
-        //     }
-        //     break;
-        //     case "event":
-        //     {
-        //         memberDef.kind = MemberKind.Event;
-        //     }
-        //     break;
-        //     case "property":
-        //     {
-        //         memberDef.kind = MemberKind.Property;
-        //     }
-        //     break;
-        //     default:
-        //     {
-        //         outputLog.Append("WARNING: Unrecognized member kind ("
-        //                          + xmlNode.Attributes["kind"].Value + "). Skipping.\n");
-        //     }
-        //     return;
-        // }
-
-        // switch(xmlNode.Attributes["prot"].Value)
-        // {
-        //     case "public":
-        //     {
-        //         memberDef.protection = ProtectionLevel.Public;
-        //     }
-        //     break;
-        //     case "private":
-        //     {
-        //         memberDef.protection = ProtectionLevel.Private;
-        //     }
-        //     break;
-        //     case "protected":
-        //     {
-        //         memberDef.protection = ProtectionLevel.Protected;
-        //     }
-        //     break;
-        // }
-
-
-        // memberDef.briefDescription = ParseDescription(xmlNode["briefdescription"]).Replace("\n\n", "");
-    }
-
     // ---------[ KIND CREATION ]---------
     private static IDefinition CreateNamespaceDefinition(XmlNode xmlNode)
     {
         NamespaceDefinition definition = new NamespaceDefinition();
         definition.language = xmlNode.Attributes["language"].Value;
+        return definition;
+    }
+
+    private static IDefinition CreatePropertyDefinition(XmlNode xmlNode)
+    {
+        PropertyDefinition definition = new PropertyDefinition();
+
+        // - getter -
+        if(xmlNode.Attributes["gettable"].Value == "yes")
+        {
+            definition.getterProtection = ProtectionLevel.Public;
+        }
+        else if(xmlNode.Attributes["privategettable"].Value == "yes")
+        {
+            definition.getterProtection = ProtectionLevel.Private;
+        }
+        else if(xmlNode.Attributes["protectedgettable"].Value == "yes")
+        {
+            definition.getterProtection = ProtectionLevel.Protected;
+        }
+
+        // - setter -
+        if(xmlNode.Attributes["settable"].Value == "yes")
+        {
+            definition.setterProtection = ProtectionLevel.Public;
+        }
+        else if(xmlNode.Attributes["privatesettable"].Value == "yes")
+        {
+            definition.setterProtection = ProtectionLevel.Private;
+        }
+        else if(xmlNode.Attributes["protectedsettable"].Value == "yes")
+        {
+            definition.setterProtection = ProtectionLevel.Protected;
+        }
+
         return definition;
     }
 
@@ -832,7 +830,10 @@ public static class Converter
         List<DefinitionNode> classNodes = new List<DefinitionNode>();
         List<DefinitionNode> interfaceNodes = new List<DefinitionNode>();
         List<DefinitionNode> enumNodes = new List<DefinitionNode>();
-        List<DefinitionNode> memberNodes = new List<DefinitionNode>();
+        List<DefinitionNode> functionNodes = new List<DefinitionNode>();
+        List<DefinitionNode> propertyNodes = new List<DefinitionNode>();
+        List<DefinitionNode> variableNodes = new List<DefinitionNode>();
+        List<DefinitionNode> eventNodes = new List<DefinitionNode>();
 
         foreach(var kvp in definitionNodeMap)
         {
@@ -848,9 +849,27 @@ public static class Converter
             {
                 enumNodes.Add(kvp.Key);
             }
-            else if(kvp.Value is MemberDefinition)
+            else if(kvp.Value is FunctionDefinition)
             {
-                memberNodes.Add(kvp.Key);
+                functionNodes.Add(kvp.Key);
+            }
+            else if(kvp.Value is PropertyDefinition)
+            {
+                propertyNodes.Add(kvp.Key);
+            }
+            else if(kvp.Value is VariableDefinition)
+            {
+                variableNodes.Add(kvp.Key);
+            }
+            else if(kvp.Value is EventDefinition)
+            {
+                eventNodes.Add(kvp.Key);
+            }
+            else
+            {
+                outputLog.Append("WARNING: Unhandled definition type ("
+                                 + kvp.Value.GetType().ToString()
+                                 + ")\n");
             }
         }
 
@@ -862,7 +881,7 @@ public static class Converter
 
         foreach(DefinitionNode interfaceNode in interfaceNodes)
         {
-            //CreateInterfaceIndex(interfaceNode, outputDirectory);
+            CreateInterfaceIndex(interfaceNode, outputDirectory);
         }
 
         foreach(DefinitionNode enumNode in enumNodes)
@@ -870,9 +889,24 @@ public static class Converter
             CreateEnumIndex(enumNode, outputDirectory);
         }
 
-        foreach(DefinitionNode memberNode in memberNodes)
+        foreach(DefinitionNode functionNode in functionNodes)
         {
-            CreateMemberIndex(memberNode, outputDirectory);
+            CreateFunctionIndex(functionNode, outputDirectory);
+        }
+
+        foreach(DefinitionNode propertyNode in propertyNodes)
+        {
+            CreatePropertyIndex(propertyNode, outputDirectory);
+        }
+
+        foreach(DefinitionNode variableNode in variableNodes)
+        {
+            CreateVariableIndex(variableNode, outputDirectory);
+        }
+
+        foreach(DefinitionNode eventNode in eventNodes)
+        {
+            CreateEventIndex(eventNode, outputDirectory);
         }
 
         outputLog.Append("END BUILDING WIKI\n");
@@ -1219,10 +1253,203 @@ public static class Converter
         return retVal;
     }
 
-    private static void CreateMemberIndex(DefinitionNode memberNode,
-                                          string outputDirectory)
+    private static void CreateVariableIndex(DefinitionNode variableNode,
+                                            string outputDirectory)
     {
-        // - Static Member Layout -
+        string fileName = DefinitionNode.GenerateFullName(variableNode) + ".md";
+        string filePath = outputDirectory + fileName;
+
+        outputLog.Append("\n--------------------\nCreating Variable Index: " + filePath + '\n');
+
+        VariableDefinition variableDefinition = definitionNodeMap[variableNode] as VariableDefinition;
+        List<string> lines = new List<string>();
+        StringBuilder buildString = null;
+
+        // - title -
+        lines.Add("# [" + variableNode.parent.name + "]("
+                  + DefinitionNode.GenerateFullName(variableNode.parent)
+                  + ")." + variableNode.name + '\n');
+
+        // - definition -
+        buildString = new StringBuilder();
+        buildString.Append(variableDefinition.protection.ToString().ToLower() + " ");
+
+        if(variableDefinition.isConst)
+        {
+            buildString.Append("const ");
+        }
+        else if(variableDefinition.isStatic)
+        {
+            buildString.Append("static ");
+        }
+
+        buildString.Append(GenerateTypeMDString(variableDefinition.type) + ' ');
+
+        buildString.Append(variableNode.name + ";\n");
+
+        lines.Add(buildString.ToString());
+
+        // - description -
+        if(!String.IsNullOrEmpty(variableDefinition.briefDescription)
+           || !String.IsNullOrEmpty(variableDefinition.detailedDescription))
+        {
+            lines.Add("## Description\n");
+
+            if(!String.IsNullOrEmpty(variableDefinition.briefDescription))
+            {
+                lines.Add(variableDefinition.briefDescription + '\n');
+            }
+            if(!String.IsNullOrEmpty(variableDefinition.detailedDescription))
+            {
+                lines.Add(variableDefinition.detailedDescription + '\n');
+            }
+        }
+
+        // - example -
+
+        // - seealso -
+
+        // - create file -
+        File.WriteAllLines(filePath, lines.ToArray());
+    }
+
+    private static void CreateEventIndex(DefinitionNode eventNode,
+                                         string outputDirectory)
+    {
+        string fileName = DefinitionNode.GenerateFullName(eventNode) + ".md";
+        string filePath = outputDirectory + fileName;
+
+        outputLog.Append("\n--------------------\nCreating Event Index: " + filePath + '\n');
+
+        EventDefinition eventDefinition = definitionNodeMap[eventNode] as EventDefinition;
+        List<string> lines = new List<string>();
+        StringBuilder buildString = null;
+
+        // - title -
+        lines.Add("# [" + eventNode.parent.name + "]("
+                  + DefinitionNode.GenerateFullName(eventNode.parent)
+                  + ")." + eventNode.name + '\n');
+
+        // - definition -
+        buildString = new StringBuilder();
+        buildString.Append(eventDefinition.protection.ToString().ToLower() + " ");
+
+        if(eventDefinition.isStatic)
+        {
+            buildString.Append("static ");
+        }
+
+        buildString.Append("event " + GenerateTypeMDString(eventDefinition.type)
+                           + ' ' + eventNode.name + ";\n");
+
+        lines.Add(buildString.ToString());
+
+        // - description -
+        if(!String.IsNullOrEmpty(eventDefinition.briefDescription)
+           || !String.IsNullOrEmpty(eventDefinition.detailedDescription))
+        {
+            lines.Add("## Description\n");
+
+            if(!String.IsNullOrEmpty(eventDefinition.briefDescription))
+            {
+                lines.Add(eventDefinition.briefDescription + '\n');
+            }
+            if(!String.IsNullOrEmpty(eventDefinition.detailedDescription))
+            {
+                lines.Add(eventDefinition.detailedDescription + '\n');
+            }
+        }
+
+        // - example -
+
+        // - seealso -
+
+        // - create file -
+        File.WriteAllLines(filePath, lines.ToArray());
+    }
+
+    private static void CreatePropertyIndex(DefinitionNode propertyNode,
+                                            string outputDirectory)
+    {
+        string fileName = DefinitionNode.GenerateFullName(propertyNode) + ".md";
+        string filePath = outputDirectory + fileName;
+
+        outputLog.Append("\n--------------------\nCreating Property Index: " + filePath + '\n');
+
+        PropertyDefinition propertyDefinition = definitionNodeMap[propertyNode] as PropertyDefinition;
+        List<string> lines = new List<string>();
+        StringBuilder buildString = null;
+
+        // - title -
+        lines.Add("# [" + propertyNode.parent.name + "]("
+                  + DefinitionNode.GenerateFullName(propertyNode.parent)
+                  + ")." + propertyNode.name + '\n');
+
+        // - definition -
+        buildString = new StringBuilder();
+        buildString.Append(propertyDefinition.protection.ToString().ToLower() + " ");
+
+        if(propertyDefinition.isConst)
+        {
+            buildString.Append("readonly ");
+        }
+        if(propertyDefinition.isStatic)
+        {
+            buildString.Append("static ");
+        }
+
+        if(propertyDefinition.type != null)
+        {
+            buildString.Append(GenerateTypeMDString(propertyDefinition.type) + ' ');
+        }
+
+        buildString.Append(propertyNode.name + " {");
+
+        if(propertyDefinition.getterProtection != ProtectionLevel._UNKNOWN_)
+        {
+            buildString.Append(" "
+                               + propertyDefinition.getterProtection.ToString().ToLower()
+                               + " get;");
+        }
+        if(propertyDefinition.setterProtection != ProtectionLevel._UNKNOWN_)
+        {
+            buildString.Append(" "
+                               + propertyDefinition.setterProtection.ToString().ToLower()
+                               + " set;");
+        }
+
+        buildString.Append(" }\n");
+
+        lines.Add(buildString.ToString());
+
+        // - description -
+        if(!String.IsNullOrEmpty(propertyDefinition.briefDescription)
+           || !String.IsNullOrEmpty(propertyDefinition.detailedDescription))
+        {
+            lines.Add("## Description\n");
+
+            if(!String.IsNullOrEmpty(propertyDefinition.briefDescription))
+            {
+                lines.Add(propertyDefinition.briefDescription + '\n');
+            }
+            if(!String.IsNullOrEmpty(propertyDefinition.detailedDescription))
+            {
+                lines.Add(propertyDefinition.detailedDescription + '\n');
+            }
+        }
+
+        // - example -
+
+        // - seealso -
+
+        // - create file -
+        File.WriteAllLines(filePath, lines.ToArray());
+    }
+
+    private static void CreateFunctionIndex(DefinitionNode functionNode,
+                                            string outputDirectory)
+    {
+        // - Static Function Layout -
         // Class.propertyName
         //
         // definition
@@ -1238,45 +1465,72 @@ public static class Converter
         //
         // SeeAlso:
 
-        string fileName = DefinitionNode.GenerateFullName(memberNode) + ".md";
+        string fileName = DefinitionNode.GenerateFullName(functionNode) + ".md";
         string filePath = outputDirectory + fileName;
 
-        outputLog.Append("\n--------------------\nCreating Member Index: " + filePath + '\n');
+        outputLog.Append("\n--------------------\nCreating Function Index: " + filePath + '\n');
 
-        MemberDefinition memberDefinition = definitionNodeMap[memberNode] as MemberDefinition;
+        FunctionDefinition functionDefinition = definitionNodeMap[functionNode] as FunctionDefinition;
         List<string> lines = new List<string>();
         StringBuilder buildString = null;
 
-        lines.Add("# [" + memberNode.parent.name + "](" + DefinitionNode.GenerateFullName(memberNode.parent)
-                  + ")." + memberNode.name + '\n');
+        // - title -
+        lines.Add("# [" + functionNode.parent.name + "]("
+                  + DefinitionNode.GenerateFullName(functionNode.parent)
+                  + ")." + functionNode.name + '\n');
 
         // - definition -
         buildString = new StringBuilder();
-        buildString.Append(memberDefinition.protection.ToString().ToLower() + " ");
+        buildString.Append(functionDefinition.protection.ToString().ToLower() + " ");
 
-        if(memberDefinition.type != null)
+        if(functionDefinition.isStatic)
         {
-            buildString.Append(GenerateTypeMDString(memberDefinition.type) + ' ');
+            buildString.Append("static ");
         }
 
-        buildString.Append(memberNode.name + ";\n");
+        buildString.Append(GenerateTypeMDString(functionDefinition.type) + ' ');
+        buildString.Append(functionNode.name + '(');
+
+        if(functionDefinition.parameters.Count > 0)
+        {
+            foreach(FunctionParameter parameter in functionDefinition.parameters)
+            {
+                buildString.Append(GenerateTypeMDString(parameter.type)
+                                   + ' ' + parameter.name + ", ");
+            }
+
+            buildString.Length -= 2;
+        }
+
+        buildString.Append(");\n");
         lines.Add(buildString.ToString());
 
         // - parameters -
+        if(functionDefinition.parameters.Count > 0)
+        {
+            lines.Add("## Parameters\n");
+            lines.Add("| Name | Description |");
+            lines.Add("| - | - |");
+            foreach(FunctionParameter parameter in functionDefinition.parameters)
+            {
+                lines.Add("| " + parameter.name + " | "
+                          + parameter.description + " |");
+            }
+        }
 
         // - description -
-        if(!String.IsNullOrEmpty(memberDefinition.briefDescription)
-           || !String.IsNullOrEmpty(memberDefinition.detailedDescription))
+        if(!String.IsNullOrEmpty(functionDefinition.briefDescription)
+           || !String.IsNullOrEmpty(functionDefinition.detailedDescription))
         {
             lines.Add("## Description\n");
 
-            if(!String.IsNullOrEmpty(memberDefinition.briefDescription))
+            if(!String.IsNullOrEmpty(functionDefinition.briefDescription))
             {
-                lines.Add(memberDefinition.briefDescription + '\n');
+                lines.Add(functionDefinition.briefDescription + '\n');
             }
-            if(!String.IsNullOrEmpty(memberDefinition.detailedDescription))
+            if(!String.IsNullOrEmpty(functionDefinition.detailedDescription))
             {
-                lines.Add(memberDefinition.detailedDescription + '\n');
+                lines.Add(functionDefinition.detailedDescription + '\n');
             }
         }
 
