@@ -1016,11 +1016,12 @@ public static class Converter
 
         lines.Add("# " + classNode.name + "\n");
         lines.Add((isStaticClass ? "static " : "")
-                  + "class in " + DefinitionNode.GenerateFullName(classNode.parent));
+                  + "class in " + DefinitionNode.GenerateFullName(classNode.parent)
+                  + '\n');
 
         if(classDefinition.baseType != null)
         {
-            lines.Add("inherits from: " + GenerateTypeMDString(classDefinition.baseType));
+            lines.Add("inherits from: " + GenerateTypeMDString(classDefinition.baseType) + '\n');
         }
 
         if(classDefinition.interfaces.Count > 0)
@@ -1034,6 +1035,7 @@ public static class Converter
             }
 
             interfaceString.Length -= 2;
+            interfaceString.Append('\n');
 
             lines.Add(interfaceString.ToString());
         }
