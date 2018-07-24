@@ -6,9 +6,6 @@ using System.IO;
 
 // TASKS
 // . add property get/set
-// . enums (in namespace files, memberdefs, children of namespace compounddef)
-// . inherited member parent nodes (definition?)
-// . inner classes (DONE?)
 // . remarks is in detailedDescription!
 // . add GitHub links
 // . layout/titling work
@@ -44,6 +41,7 @@ public static class Converter
         { "listofallmembers", Converter.ProcessListOfAllMembers },
         { "name", Converter.ProcessName },
         { "compoundname", Converter.ProcessCompoundName },
+        { "basecompoundref", Converter.ProcessBaseCompoundRef },
     };
 
     private static List<string> nodesToSkip = new List<string>()
@@ -74,7 +72,6 @@ public static class Converter
         "dir",
         "page"
     };
-
 
     // ---------[ BASICS ]---------
     public static WikiMode mode = WikiMode.Unity;
@@ -145,6 +142,16 @@ public static class Converter
         foreach(DefinitionNode node in definitionNodeMap.Keys)
         {
             if(node.d_id == d_id) { return node; }
+        }
+
+        return null;
+    }
+
+    private static DefinitionNode FindDefinitionNodeByName(string name)
+    {
+        foreach(DefinitionNode node in definitionNodeMap.Keys)
+        {
+            if(node.name == name) { return node; }
         }
 
         return null;
@@ -393,13 +400,13 @@ public static class Converter
     // --- Basic Nodes ---
     private static void ProcessName(XmlNode node, DefinitionNode parentNode)
     {
-        parentNode.name = ParseXMLString(node.InnerText);
+        parentNode.name = ParseXMLString(node.InnerXml);
         outputLog.Append(". name is " + parentNode.name + '\n');
     }
 
     private static void ProcessCompoundName(XmlNode node, DefinitionNode parentNode)
     {
-        string[] nameParts = ParseXMLString(node.InnerText).Replace("::", ".").Split('.');
+        string[] nameParts = ParseXMLString(node.InnerXml).Replace("::", ".").Split('.');
         parentNode.name = nameParts[nameParts.Length - 1];
         outputLog.Append(". name is " + parentNode.name + '\n');
     }
@@ -412,8 +419,26 @@ public static class Converter
 
     private static void ProcessType(XmlNode node, DefinitionNode parentNode)
     {
-        outputLog.Append(". not implemented\n");
-     }
+        // skip if enum
+        if(definitionNodeMap[parentNode] is EnumDefinition) { return; }
+
+        MemberDefinition memberDefinition = definitionNodeMap[parentNode] as MemberDefinition;
+
+        string typeString = node.InnerText;
+
+        if(typeString.Contains("const "))
+        {
+            memberDefinition.isConst = true;
+            memberDefinition.isStatic = (mode == WikiMode.Unity);
+        }
+        if(typeString.Contains("readonly "))
+        {
+            memberDefinition.isConst = true;
+        }
+
+        TypeDescription typeDescription = ParseTypeDescription(node);
+        memberDefinition.type = typeDescription;
+    }
 
     private static void ProcessLocation(XmlNode node, DefinitionNode parentNode)
     {
@@ -423,6 +448,33 @@ public static class Converter
     private static void ProcessDetailedDescription(XmlNode xmlNode, DefinitionNode parentNode)
     {
         outputLog.Append(". not implemented\n");
+    }
+
+    private static void ProcessBaseCompoundRef(XmlNode xmlNode, DefinitionNode parentNode)
+    {
+        ObjectDefinition objectDefinition = definitionNodeMap[parentNode] as ObjectDefinition;
+        TypeDescription typeDescription = ParseTypeDescription(xmlNode);
+        bool isInterface = false;
+
+        if(xmlNode.Attributes["refid"] != null)
+        {
+            string refId = xmlNode.Attributes["refid"].Value;
+            typeDescription.d_id = refId;
+            typeDescription.isRef = true;
+
+            isInterface = (refId.Contains("interface_"));
+        }
+
+        if(isInterface)
+        {
+            objectDefinition.interfaces.Add(typeDescription);
+            outputLog.Append(". set as interface\n");
+        }
+        else
+        {
+            objectDefinition.baseType = typeDescription;
+            outputLog.Append(". set as base class\n");
+        }
     }
 
     // --- Structure ---
@@ -456,6 +508,7 @@ public static class Converter
             return;
         }
 
+        // - set parenting -
         DefinitionNode memberNode = GetOrCreateNodeWithDefinition(xmlNode.Attributes["id"].Value,
                                                                   nodeKindCreationMap[nodeKind],
                                                                   xmlNode);
@@ -469,33 +522,77 @@ public static class Converter
                              + (parentNode == null ? "NULL" : parentNode.d_id)
                              + "]\n");
         }
-
         memberNode.parent = parentNode;
-        parentNode.children.Add(memberNode);
+
+        if(!parentNode.children.Contains(memberNode))
+        {
+            outputLog.Append(". adding member node [" + memberId + "]\n");
+
+            parentNode.children.Add(memberNode);
+        }
+
+        // - grab attributes -
+        MemberDefinition definition = definitionNodeMap[memberNode] as MemberDefinition;
+        switch(xmlNode.Attributes["prot"].Value.ToLower())
+        {
+            case "public":
+            {
+                definition.protection = ProtectionLevel.Public;
+            }
+            break;
+            case "private":
+            {
+                definition.protection = ProtectionLevel.Private;
+            }
+            break;
+            case "protected":
+            {
+                definition.protection = ProtectionLevel.Protected;
+            }
+            break;
+
+            default:
+            {
+                outputLog.Append("WARNING: Unrecognized protection level \'"
+                                 + xmlNode.Attributes["prot"].Value.ToLower()
+                                 + "\'\n");
+            }
+            break;
+        }
+
+        definition.isStatic = (xmlNode.Attributes["static"].Value == "yes");
 
         ProcessChildNodes(xmlNode, memberNode);
     }
 
     private static void ProcessInnerClass(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        DefinitionNode classNode = GetOrCreateNodeWithDefinition(xmlNode.Attributes["refid"].Value,
-                                                                 nodeKindCreationMap["class"],
-                                                                 xmlNode);
-
-        if(classNode.parent != null
-           && classNode.parent != parentNode)
+        string nodeId = xmlNode.Attributes["refid"].Value;
+        DefinitionNode innerClassNode = FindDefinitionNodeById(nodeId);
+        if(innerClassNode == null)
         {
-            outputLog.Append("WARNING: classNode.parent ["
-                             + DefinitionNode.GenerateFullName(classNode.parent)
+            outputLog.Append(". creating new node [" + nodeId + "]\n");
+
+            innerClassNode = new DefinitionNode();
+            innerClassNode.d_id = nodeId;
+
+            definitionNodeMap.Add(innerClassNode, null);
+        }
+
+        if(innerClassNode.parent != null
+           && innerClassNode.parent != parentNode)
+        {
+            outputLog.Append("WARNING: innerClassNode.parent ["
+                             + DefinitionNode.GenerateFullName(innerClassNode.parent)
                              + "] != parentNode ["
                              + (parentNode == null ? "NULL" : DefinitionNode.GenerateFullName(parentNode))
                              + "]\n");
         }
 
-        classNode.parent = parentNode;
-        parentNode.children.Add(classNode);
+        innerClassNode.parent = parentNode;
+        parentNode.children.Add(innerClassNode);
 
-        ProcessChildNodes(xmlNode, classNode);
+        ProcessChildNodes(xmlNode, innerClassNode);
     }
 
     private static void ProcessInnerNamespace(XmlNode xmlNode, DefinitionNode parentNode)
@@ -541,20 +638,14 @@ public static class Converter
 
                 definitionNodeMap.Add(mDefNode, null);
 
-                outputLog.Append(". creating member node [" + memberId + "]\n");
-            }
-            else if(mDefNode.parent != null
-               && mDefNode.parent != parentNode)
-            {
-                outputLog.Append("WARNING: mDefNode.parent ["
-                                 + DefinitionNode.GenerateFullName(mDefNode.parent)
-                                 + "] != parentNode ["
-                                 + (parentNode == null ? "NULL" : DefinitionNode.GenerateFullName(parentNode))
-                                 + "]\n");
             }
 
-            mDefNode.parent = parentNode;
-            parentNode.children.Add(mDefNode);
+            if(!parentNode.children.Contains(mDefNode))
+            {
+                outputLog.Append(". adding member node [" + memberId + "]");
+
+                parentNode.children.Add(mDefNode);
+            }
 
             ProcessChildNodes(memberNode, mDefNode);
         }
@@ -654,48 +745,6 @@ public static class Converter
     private static void ProcessProperty(XmlNode xmlNode, DefinitionNode memberNode)
     {
         // // - get def -
-        // CompoundDefinition memberDefinition = definitionNodeMap[memberNode] as CompoundDefinition;
-
-        // if(memberDefinition == null)
-        // {
-        //     memberDefinition = new CompoundDefinition();
-        //     memberDefinition.node = memberNode;
-
-        //     definitionNodeMap[memberNode] = memberDefinition;
-
-        //     outputLog.Append(". new member definition [" + memberDefinition.node.name + "]\n");
-        // }
-
-        // // - get def -
-        // MemberDefinition memberDef = definitionNodeMap[memberNode] as MemberDefinition;
-
-        // if(memberDef == null)
-        // {
-        //     memberDef = new MemberDefinition();
-        //     memberDef.name = memberName;
-
-        //     definitionNodeMap[memberNode] = memberDef;
-
-        //     outputLog.Append(". new member definition\n");
-        // }
-
-        // // - build def -
-        // string memberType = xmlNode["type"].InnerText;
-        // if(memberType.Contains("const "))
-        // {
-        //     memberType.Replace("const ", "");
-        //     memberDef.isConst = true;
-        //     memberDef.isStatic = (mode == WikiMode.Unity);
-        // }
-
-        // if(memberType.Contains("readonly "))
-        // {
-        //     memberType.Replace("readonly ", "");
-        //     memberDef.isConst = true;
-        // }
-
-        // memberDef.type = ParseTypeDescription(xmlNode["type"]);
-
         // switch(xmlNode.Attributes["kind"].Value)
         // {
         //     case "variable":
@@ -752,7 +801,6 @@ public static class Converter
         //     break;
         // }
 
-        // memberDef.isStatic = (xmlNode.Attributes["static"].Value == "yes");
 
         // memberDef.briefDescription = ParseDescription(xmlNode["briefdescription"]).Replace("\n\n", "");
     }
@@ -810,6 +858,16 @@ public static class Converter
         foreach(DefinitionNode classNode in classNodes)
         {
             CreateClassIndex(classNode, outputDirectory);
+        }
+
+        foreach(DefinitionNode interfaceNode in interfaceNodes)
+        {
+            //CreateInterfaceIndex(interfaceNode, outputDirectory);
+        }
+
+        foreach(DefinitionNode enumNode in enumNodes)
+        {
+            CreateEnumIndex(enumNode, outputDirectory);
         }
 
         foreach(DefinitionNode memberNode in memberNodes)
@@ -899,7 +957,7 @@ public static class Converter
         outputLog.Append(". id [" + classNode.d_id + "]\n");
 
         // - collect data -
-        CompoundDefinition classDefinition = definitionNodeMap[classNode] as CompoundDefinition;
+        ClassDefinition classDefinition = definitionNodeMap[classNode] as ClassDefinition;
         List<DefinitionNode> const_props = new List<DefinitionNode>();
         List<DefinitionNode> static_props = new List<DefinitionNode>();
         List<DefinitionNode> props = new List<DefinitionNode>();
@@ -960,6 +1018,26 @@ public static class Converter
         lines.Add((isStaticClass ? "static " : "")
                   + "class in " + DefinitionNode.GenerateFullName(classNode.parent));
 
+        if(classDefinition.baseType != null)
+        {
+            lines.Add("inherits from: " + GenerateTypeMDString(classDefinition.baseType));
+        }
+
+        if(classDefinition.interfaces.Count > 0)
+        {
+            StringBuilder interfaceString = new StringBuilder();
+            interfaceString.Append("implements interfaces: ");
+
+            foreach(TypeDescription interfaceType in classDefinition.interfaces)
+            {
+                interfaceString.Append(GenerateTypeMDString(interfaceType) + ", ");
+            }
+
+            interfaceString.Length -= 2;
+
+            lines.Add(interfaceString.ToString());
+        }
+
         if(!String.IsNullOrEmpty(classDefinition.briefDescription))
         {
             lines.Add("## Description\n");
@@ -1006,6 +1084,71 @@ public static class Converter
         File.WriteAllLines(filePath, lines.ToArray());
     }
 
+    private static void CreateInterfaceIndex(DefinitionNode interfaceNode,
+                                             string outputDirectory)
+    {
+        string fileName = DefinitionNode.GenerateFullName(interfaceNode) + ".md";
+        string filePath = outputDirectory + fileName;
+
+        outputLog.Append("\n--------------------\nCreating Interface Index: " + filePath + '\n');
+        outputLog.Append(". id [" + interfaceNode.d_id + "]\n");
+
+        // - collect data -
+        InterfaceDefinition interfaceDefinition = definitionNodeMap[interfaceNode] as InterfaceDefinition;
+        List<DefinitionNode> props = new List<DefinitionNode>();
+        List<DefinitionNode> methods = new List<DefinitionNode>();
+
+        foreach(var childNode in interfaceNode.children)
+        {
+            outputLog.Append(". processing " + childNode.name + '\n');
+
+            MemberDefinition memberDef = definitionNodeMap[childNode] as MemberDefinition;
+
+            if(memberDef is PropertyDefinition)
+            {
+                props.Add(childNode);
+            }
+            else if(memberDef is FunctionDefinition)
+            {
+                methods.Add(childNode);
+            }
+            else
+            {
+                outputLog.Append("WARNING: " + childNode.name
+                                 + " is an unrecognized member type ("
+                                 + (memberDef == null ? "NON-MEMBER" : memberDef.GetType().ToString())
+                                 + "). Ignoring.\n");
+            }
+        }
+
+        // - build index -
+        List<string> lines = new List<string>();
+
+        lines.Add("# " + interfaceNode.name + "\n");
+        lines.Add("interface in " + DefinitionNode.GenerateFullName(interfaceNode.parent));
+
+        if(!String.IsNullOrEmpty(interfaceDefinition.briefDescription))
+        {
+            lines.Add("## Description\n");
+            lines.Add(interfaceDefinition.briefDescription);
+        }
+
+        if(props.Count > 0)
+        {
+            lines.Add("\n# Properties");
+            lines.AddRange(GenerateMemberTable(props));
+        }
+
+        if(methods.Count > 0)
+        {
+            lines.Add("\n# Methods");
+            lines.AddRange(GenerateMemberTable(methods));
+        }
+
+        // - write file -
+        File.WriteAllLines(filePath, lines.ToArray());
+    }
+
     private static void CreateEnumIndex(DefinitionNode enumNode,
                                         string outputDirectory)
     {
@@ -1015,7 +1158,7 @@ public static class Converter
         outputLog.Append("\n--------------------\nCreating Enum Index: " + filePath + '\n');
 
         // - collect data -
-        CompoundDefinition enumDefinition = definitionNodeMap[enumNode] as CompoundDefinition;
+        EnumDefinition enumDefinition = definitionNodeMap[enumNode] as EnumDefinition;
         List<DefinitionNode> props = new List<DefinitionNode>();
 
         foreach(var childNode in enumNode.children)

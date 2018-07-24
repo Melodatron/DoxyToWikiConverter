@@ -31,11 +31,15 @@ public class NamespaceDefinition : CompoundDefinition
     public string language = "unknown";
 }
 
-public class ClassDefinition : CompoundDefinition {}
-public class StructDefinition : CompoundDefinition {}
-public class InterfaceDefinition : CompoundDefinition {}
-public class EnumDefinition : CompoundDefinition {}
+public class ObjectDefinition : CompoundDefinition
+{
+    public TypeDescription baseType = null;
+    public List<TypeDescription> interfaces = new List<TypeDescription>(0);
+}
 
+public class ClassDefinition : ObjectDefinition {}
+public class StructDefinition : ObjectDefinition {}
+public class InterfaceDefinition : ObjectDefinition {}
 
 public enum MemberKind
 {
@@ -69,6 +73,7 @@ public class FunctionDefinition : MemberDefinition
 public class VariableDefinition     : MemberDefinition {}
 public class PropertyDefinition     : MemberDefinition {}
 public class EventDefinition        : MemberDefinition {}
+public class EnumDefinition         : MemberDefinition {}
 public class EnumValueDefinition    : MemberDefinition {}
 
 public class TypeDescription
