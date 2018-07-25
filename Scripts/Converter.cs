@@ -45,6 +45,7 @@ public static class Converter
         { "compoundname", Converter.ProcessCompoundName },
         { "basecompoundref", Converter.ProcessBaseCompoundRef },
         { "param", Converter.ProcessParam },
+        { "initializer", Converter.ProcessInitializer },
     };
 
     private static List<string> nodesToSkip = new List<string>()
@@ -908,6 +909,15 @@ public static class Converter
         }
     }
 
+    private static void ProcessInitializer(XmlNode node, DefinitionNode parentNode)
+    {
+        if(node.FirstChild == null) { return; }
+
+        outputLog.Append(". adding initializedValue\n");
+        VariableDefinition definition = definitionNodeMap[parentNode] as VariableDefinition;
+        definition.initializedValue = node.InnerText.Substring(2).Replace("<", "[").Replace(">", "]").Trim(); // skip "= "
+    }
+
     // ---------[ KIND CREATION ]---------
     private static IDefinition CreateNamespaceDefinition(XmlNode xmlNode)
     {
@@ -1458,6 +1468,15 @@ public static class Converter
             {
                 lines.Add(variableDefinition.remarks + '\n');
             }
+        }
+
+        // - initialized value -
+        if(!String.IsNullOrEmpty(variableDefinition.initializedValue))
+        {
+            lines.Add("## Initialized Value\n");
+            lines.Add("```c#");
+            lines.Add(variableDefinition.initializedValue);
+            lines.Add("```\n");
         }
 
         // - example -

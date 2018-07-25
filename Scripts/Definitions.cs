@@ -71,7 +71,11 @@ public class FunctionDefinition : MemberDefinition
     public string returnDescription = null;
 }
 
-public class VariableDefinition     : MemberDefinition {}
+public class VariableDefinition     : MemberDefinition
+{
+    public string initializedValue = null;
+}
+
 public class PropertyDefinition     : MemberDefinition
 {
     public ProtectionLevel getterProtection = ProtectionLevel._UNKNOWN_;
