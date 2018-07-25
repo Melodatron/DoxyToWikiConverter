@@ -15,7 +15,6 @@ public interface IDefinition
 {
     DefinitionNode node { get; set; }
     string briefDescription { get; set; }
-    string detailedDescription { get; set; }
     ProtectionLevel protection { get; set; }
 }
 
@@ -23,7 +22,6 @@ public class CompoundDefinition : IDefinition
 {
     public DefinitionNode node { get; set; }
     public string briefDescription { get; set; }
-    public string detailedDescription { get; set; }
     public ProtectionLevel protection { get; set; }
 }
 
@@ -57,7 +55,6 @@ public abstract class MemberDefinition : IDefinition
 {
     public DefinitionNode node { get; set; }
     public string briefDescription { get; set; }
-    public string detailedDescription { get; set; }
     public ProtectionLevel protection { get; set; }
 
     public TypeDescription type = new TypeDescription();
@@ -68,6 +65,7 @@ public abstract class MemberDefinition : IDefinition
 public class FunctionDefinition : MemberDefinition
 {
     public List<FunctionParameter> parameters = new List<FunctionParameter>();
+    public string returnDescription = null;
 }
 
 public class VariableDefinition     : MemberDefinition {}

@@ -509,6 +509,8 @@ public static class Converter
 
             case "parameterlist":
             {
+                FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
+
                 foreach(XmlNode childNode in xmlNode.ChildNodes)
                 {
                     if(childNode.Name != "parameteritem")
@@ -518,8 +520,24 @@ public static class Converter
                         continue;
                     }
 
-                    FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
                     ParseParamDescription(childNode, definition);
+                }
+            }
+            break;
+
+            case "simplesect":
+            {
+                if(xmlNode.Attributes["kind"].Value == "return")
+                {
+                    if(xmlNode.FirstChild != null)
+                    {
+                        FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
+
+                        StringBuilder sb = new StringBuilder();
+                        ParseDescriptionXML(xmlNode.FirstChild, sb);
+
+                        definition.returnDescription = sb.ToString().Trim();
+                    }
                 }
             }
             break;
@@ -542,7 +560,7 @@ public static class Converter
 
             StringBuilder sb = new StringBuilder();
             ParseDescriptionXML(xmlNode["parameterdescription"].FirstChild, sb);
-            parameter.description = sb.ToString().Replace("\n\n", " ");
+            parameter.description = sb.ToString().Trim();
         }
     }
 
@@ -766,7 +784,7 @@ public static class Converter
             ParseDescriptionXML(xmlNode.FirstChild, retVal);
 
             IDefinition definition = definitionNodeMap[parentNode];
-            definition.briefDescription = retVal.ToString();
+            definition.briefDescription = retVal.ToString().Trim();
         }
     }
 
@@ -1368,19 +1386,10 @@ public static class Converter
         lines.Add(buildString.ToString());
 
         // - description -
-        if(!String.IsNullOrEmpty(variableDefinition.briefDescription)
-           || !String.IsNullOrEmpty(variableDefinition.detailedDescription))
+        if(!String.IsNullOrEmpty(variableDefinition.briefDescription))
         {
             lines.Add("## Description\n");
-
-            if(!String.IsNullOrEmpty(variableDefinition.briefDescription))
-            {
-                lines.Add(variableDefinition.briefDescription + '\n');
-            }
-            if(!String.IsNullOrEmpty(variableDefinition.detailedDescription))
-            {
-                lines.Add(variableDefinition.detailedDescription + '\n');
-            }
+            lines.Add(variableDefinition.briefDescription + '\n');
         }
 
         // - example -
@@ -1423,19 +1432,10 @@ public static class Converter
         lines.Add(buildString.ToString());
 
         // - description -
-        if(!String.IsNullOrEmpty(eventDefinition.briefDescription)
-           || !String.IsNullOrEmpty(eventDefinition.detailedDescription))
+        if(!String.IsNullOrEmpty(eventDefinition.briefDescription))
         {
             lines.Add("## Description\n");
-
-            if(!String.IsNullOrEmpty(eventDefinition.briefDescription))
-            {
-                lines.Add(eventDefinition.briefDescription + '\n');
-            }
-            if(!String.IsNullOrEmpty(eventDefinition.detailedDescription))
-            {
-                lines.Add(eventDefinition.detailedDescription + '\n');
-            }
+            lines.Add(eventDefinition.briefDescription + '\n');
         }
 
         // - example -
@@ -1501,19 +1501,10 @@ public static class Converter
         lines.Add(buildString.ToString());
 
         // - description -
-        if(!String.IsNullOrEmpty(propertyDefinition.briefDescription)
-           || !String.IsNullOrEmpty(propertyDefinition.detailedDescription))
+        if(!String.IsNullOrEmpty(propertyDefinition.briefDescription))
         {
             lines.Add("## Description\n");
-
-            if(!String.IsNullOrEmpty(propertyDefinition.briefDescription))
-            {
-                lines.Add(propertyDefinition.briefDescription + '\n');
-            }
-            if(!String.IsNullOrEmpty(propertyDefinition.detailedDescription))
-            {
-                lines.Add(propertyDefinition.detailedDescription + '\n');
-            }
+            lines.Add(propertyDefinition.briefDescription + '\n');
         }
 
         // - example -
@@ -1596,20 +1587,27 @@ public static class Converter
             }
         }
 
-        // - description -
-        if(!String.IsNullOrEmpty(functionDefinition.briefDescription)
-           || !String.IsNullOrEmpty(functionDefinition.detailedDescription))
+        // - returns -
+        if(functionDefinition.type.name != "void")
         {
-            lines.Add("## Description\n");
+            lines.Add("\n## Returns\n");
+            if(String.IsNullOrEmpty(functionDefinition.returnDescription))
+            {
+                lines.Add("**" + GenerateTypeMDString(functionDefinition.type)
+                          + "**: Result of the function calculations");
+            }
+            else
+            {
+                lines.Add("**" + GenerateTypeMDString(functionDefinition.type)
+                          + "**: " + functionDefinition.returnDescription);
+            }
+        }
 
-            if(!String.IsNullOrEmpty(functionDefinition.briefDescription))
-            {
-                lines.Add(functionDefinition.briefDescription + '\n');
-            }
-            if(!String.IsNullOrEmpty(functionDefinition.detailedDescription))
-            {
-                lines.Add(functionDefinition.detailedDescription + '\n');
-            }
+        // - description -
+        if(!String.IsNullOrEmpty(functionDefinition.briefDescription))
+        {
+            lines.Add("\n## Description\n");
+            lines.Add(functionDefinition.briefDescription + '\n');
         }
 
         // - example -
