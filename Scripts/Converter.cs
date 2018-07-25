@@ -51,7 +51,9 @@ public static class Converter
         "#text",
         "scope",
         "definition",
-        "argsstring"
+        "argsstring",
+        "inheritancegraph",
+        "collaborationgraph",
     };
 
     public delegate IDefinition CreateDefinitionDelegate(XmlNode xmlNode);
@@ -377,6 +379,26 @@ public static class Converter
         return debugString.ToString();
     }
 
+    private static FunctionParameter GetOrCreateFunctionParameter(FunctionDefinition definition,
+                                                                  string paramName)
+    {
+        foreach(FunctionParameter parameter in definition.parameters)
+        {
+            if(parameter.name == paramName)
+            {
+                outputLog.Append(". found exisiting param: " + paramName + '\n');
+                return parameter;
+            }
+        }
+
+        FunctionParameter newParam = new FunctionParameter();
+        newParam.name = paramName;
+        definition.parameters.Add(newParam);
+
+        outputLog.Append(". added new param: " + paramName + '\n');
+
+        return newParam;
+    }
 
     // --------- [PROCESSING] ---------
     private static void ProcessChildNodes(XmlNode xmlNode, DefinitionNode parentNode)
@@ -447,14 +469,81 @@ public static class Converter
         memberDefinition.type = typeDescription;
     }
 
+    private static void ProcessParam(XmlNode xmlNode, DefinitionNode parentNode)
+    {
+        string paramName = ParseXMLString(xmlNode["declname"].InnerXml);
+
+        FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
+        FunctionParameter parameter = GetOrCreateFunctionParameter(definition, paramName);
+
+        parameter.type = ParseTypeDescription(xmlNode["type"]);
+    }
+
     private static void ProcessLocation(XmlNode node, DefinitionNode parentNode)
     {
-        outputLog.Append(". not implemented\n");
+        outputLog.Append("WARNING: not implemented\n");
     }
 
     private static void ProcessDetailedDescription(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        outputLog.Append(". not implemented\n");
+        foreach(XmlNode childNode in xmlNode)
+        {
+            ParseDetailedDescriptionNode(childNode, parentNode);
+        }
+    }
+
+    private static void ParseDetailedDescriptionNode(XmlNode xmlNode, DefinitionNode parentNode)
+    {
+        outputLog.Append(". parsing " + xmlNode.Name + " node\n");
+
+        switch(xmlNode.Name)
+        {
+            case "para":
+            {
+                foreach(XmlNode childNode in xmlNode.ChildNodes)
+                {
+                    ParseDetailedDescriptionNode(childNode, parentNode);
+                }
+            }
+            break;
+
+            case "parameterlist":
+            {
+                foreach(XmlNode childNode in xmlNode.ChildNodes)
+                {
+                    if(childNode.Name != "parameteritem")
+                    {
+                        outputLog.Append("WARNING: Unexpected child node ("
+                                         + childNode.Name + ")\n");
+                        continue;
+                    }
+
+                    FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
+                    ParseParamDescription(childNode, definition);
+                }
+            }
+            break;
+
+            default:
+            {
+                outputLog.Append("WARNING: Unhandled detailed description child node\n");
+            }
+            return;
+        }
+    }
+
+    private static void ParseParamDescription(XmlNode xmlNode, FunctionDefinition definition)
+    {
+        if(xmlNode["parameterdescription"].FirstChild != null)
+        {
+            string paramName = ParseXMLString(xmlNode["parameternamelist"]["parametername"].InnerXml);
+
+            FunctionParameter parameter = GetOrCreateFunctionParameter(definition, paramName);
+
+            StringBuilder sb = new StringBuilder();
+            ParseDescriptionXML(xmlNode["parameterdescription"].FirstChild, sb);
+            parameter.description = sb.ToString().Replace("\n\n", " ");
+        }
     }
 
     private static void ProcessBaseCompoundRef(XmlNode xmlNode, DefinitionNode parentNode)
@@ -482,19 +571,6 @@ public static class Converter
             objectDefinition.baseType = typeDescription;
             outputLog.Append(". set as base class\n");
         }
-    }
-
-    private static void ProcessParam(XmlNode xmlNode, DefinitionNode parentNode)
-    {
-        FunctionParameter parameter = new FunctionParameter();
-
-        parameter.name = ParseXMLString(xmlNode["declname"].InnerXml);
-        parameter.type = ParseTypeDescription(xmlNode["type"]);
-
-        outputLog.Append(". adding param " + parameter.name + '\n');
-
-        FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
-        definition.parameters.Add(parameter);
     }
 
     // --- Structure ---
@@ -679,26 +755,28 @@ public static class Converter
 
     private static void ProcessEnumValue(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        outputLog.Append(". not implemented\n");
+        outputLog.Append("WARNING: not implemented\n");
     }
 
     private static void ProcessBriefDescription(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        StringBuilder retVal = new StringBuilder();
-        BuildBriefDescriptionFromNodes(xmlNode, retVal);
+        if(xmlNode.FirstChild != null)
+        {
+            StringBuilder retVal = new StringBuilder();
+            ParseDescriptionXML(xmlNode.FirstChild, retVal);
 
-        IDefinition definition = definitionNodeMap[parentNode];
-        definition.briefDescription = retVal.ToString();
+            IDefinition definition = definitionNodeMap[parentNode];
+            definition.briefDescription = retVal.ToString();
+        }
     }
 
-    private static void BuildBriefDescriptionFromNodes(XmlNode node, StringBuilder result)
+    private static void ParseDescriptionXML(XmlNode node, StringBuilder result)
     {
         bool isTagUnrecognised = false;
 
         // - open tag -
         switch(node.Name)
         {
-            case "briefdescription":
             case "para":
             case "#text":
             break;
@@ -730,7 +808,7 @@ public static class Converter
         {
             foreach(XmlNode childNode in node.ChildNodes)
             {
-                BuildBriefDescriptionFromNodes(childNode, result);
+                ParseDescriptionXML(childNode, result);
             }
         }
         else if(node.Value != null)
