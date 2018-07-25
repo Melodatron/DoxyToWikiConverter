@@ -15,6 +15,7 @@ public interface IDefinition
 {
     DefinitionNode node { get; set; }
     string briefDescription { get; set; }
+    string remarks { get; set; }
     ProtectionLevel protection { get; set; }
 }
 
@@ -22,6 +23,7 @@ public class CompoundDefinition : IDefinition
 {
     public DefinitionNode node { get; set; }
     public string briefDescription { get; set; }
+    public string remarks { get; set; }
     public ProtectionLevel protection { get; set; }
 }
 
@@ -55,6 +57,7 @@ public abstract class MemberDefinition : IDefinition
 {
     public DefinitionNode node { get; set; }
     public string briefDescription { get; set; }
+    public string remarks { get; set; }
     public ProtectionLevel protection { get; set; }
 
     public TypeDescription type = new TypeDescription();

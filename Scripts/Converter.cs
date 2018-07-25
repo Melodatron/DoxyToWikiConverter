@@ -10,6 +10,8 @@ using System.IO;
 // . remarks is in detailedDescription!
 // . add GitHub links
 // . layout/titling work
+// . unignore location
+// . inbodydescription?
 
 public enum WikiMode
 {
@@ -36,7 +38,6 @@ public static class Converter
         { "innernamespace", Converter.ProcessInnerNamespace },
         { "sectiondef", Converter.ProcessSection },
         { "type", Converter.ProcessType },
-        { "location", Converter.ProcessLocation },
         { "briefdescription", Converter.ProcessBriefDescription },
         { "detaileddescription", Converter.ProcessDetailedDescription },
         { "listofallmembers", Converter.ProcessListOfAllMembers },
@@ -54,6 +55,8 @@ public static class Converter
         "argsstring",
         "inheritancegraph",
         "collaborationgraph",
+        "inbodydescription",
+        "location",
     };
 
     public delegate IDefinition CreateDefinitionDelegate(XmlNode xmlNode);
@@ -479,20 +482,22 @@ public static class Converter
         parameter.type = ParseTypeDescription(xmlNode["type"]);
     }
 
-    private static void ProcessLocation(XmlNode node, DefinitionNode parentNode)
-    {
-        outputLog.Append("WARNING: not implemented\n");
-    }
-
     private static void ProcessDetailedDescription(XmlNode xmlNode, DefinitionNode parentNode)
     {
         foreach(XmlNode childNode in xmlNode)
         {
-            ParseDetailedDescriptionNode(childNode, parentNode);
+            ParseDetailedDescriptionNode(childNode, parentNode, DescriptionContext.Remarks);
         }
     }
 
-    private static void ParseDetailedDescriptionNode(XmlNode xmlNode, DefinitionNode parentNode)
+    private enum DescriptionContext
+    {
+        Remarks,
+    }
+
+    private static void ParseDetailedDescriptionNode(XmlNode xmlNode,
+                                                     DefinitionNode parentNode,
+                                                     DescriptionContext context)
     {
         outputLog.Append(". parsing " + xmlNode.Name + " node\n");
 
@@ -502,7 +507,7 @@ public static class Converter
             {
                 foreach(XmlNode childNode in xmlNode.ChildNodes)
                 {
-                    ParseDetailedDescriptionNode(childNode, parentNode);
+                    ParseDetailedDescriptionNode(childNode, parentNode, context);
                 }
             }
             break;
@@ -538,6 +543,45 @@ public static class Converter
 
                         definition.returnDescription = sb.ToString().Trim();
                     }
+                }
+            }
+            break;
+
+            case "itemizedlist":
+            {
+                StringBuilder sb = new StringBuilder();
+                foreach(XmlNode childNode in xmlNode.ChildNodes)
+                {
+                    if(childNode.Name == "listitem")
+                    {
+                        sb.Append("- ");
+
+                        StringBuilder liSB = new StringBuilder();
+                        ParseDescriptionXML(childNode.FirstChild, liSB);
+                        sb.Append(liSB.ToString().Trim());
+
+                        sb.Append('\n');
+                    }
+                    else
+                    {
+                        outputLog.Append("WARNING: Unexpected child node " + childNode.Name + '\n');
+                    }
+                }
+
+                if(context == DescriptionContext.Remarks)
+                {
+                    if(definitionNodeMap[parentNode].remarks == null)
+                    {
+                        definitionNodeMap[parentNode].remarks = sb.ToString().Trim();
+                    }
+                    else
+                    {
+                        definitionNodeMap[parentNode].remarks += sb.ToString().Trim();
+                    }
+                }
+                else
+                {
+                    outputLog.Append("WARNING: Not implemented lists outside of remarks\n");
                 }
             }
             break;
@@ -1170,12 +1214,19 @@ public static class Converter
             lines.Add(interfaceString.ToString());
         }
 
+        // - desc -
         if(!String.IsNullOrEmpty(classDefinition.briefDescription))
         {
             lines.Add("## Description\n");
             lines.Add(classDefinition.briefDescription);
+
+            if(!String.IsNullOrEmpty(classDefinition.remarks))
+            {
+                lines.Add(classDefinition.remarks + '\n');
+            }
         }
 
+        // - members -
         if(const_props.Count > 0)
         {
             lines.Add("\n# Constant Properties");
@@ -1259,12 +1310,19 @@ public static class Converter
         lines.Add("# " + interfaceNode.name + "\n");
         lines.Add("interface in " + DefinitionNode.GenerateFullName(interfaceNode.parent));
 
+        // - desc -
         if(!String.IsNullOrEmpty(interfaceDefinition.briefDescription))
         {
             lines.Add("## Description\n");
             lines.Add(interfaceDefinition.briefDescription);
+
+            if(!String.IsNullOrEmpty(interfaceDefinition.remarks))
+            {
+                lines.Add(interfaceDefinition.remarks + '\n');
+            }
         }
 
+        // - members -
         if(props.Count > 0)
         {
             lines.Add("\n# Properties");
@@ -1319,7 +1377,12 @@ public static class Converter
         if(!String.IsNullOrEmpty(enumDefinition.briefDescription))
         {
             lines.Add("## Description\n");
-            lines.Add(enumDefinition.briefDescription);
+            lines.Add(enumDefinition.briefDescription + '\n');
+
+            if(!String.IsNullOrEmpty(enumDefinition.remarks))
+            {
+                lines.Add(enumDefinition.remarks + '\n');
+            }
         }
 
         if(props.Count > 0)
@@ -1390,6 +1453,11 @@ public static class Converter
         {
             lines.Add("## Description\n");
             lines.Add(variableDefinition.briefDescription + '\n');
+
+            if(!String.IsNullOrEmpty(variableDefinition.remarks))
+            {
+                lines.Add(variableDefinition.remarks + '\n');
+            }
         }
 
         // - example -
@@ -1436,6 +1504,11 @@ public static class Converter
         {
             lines.Add("## Description\n");
             lines.Add(eventDefinition.briefDescription + '\n');
+
+            if(!String.IsNullOrEmpty(eventDefinition.remarks))
+            {
+                lines.Add(eventDefinition.remarks + '\n');
+            }
         }
 
         // - example -
@@ -1505,6 +1578,11 @@ public static class Converter
         {
             lines.Add("## Description\n");
             lines.Add(propertyDefinition.briefDescription + '\n');
+
+            if(!String.IsNullOrEmpty(propertyDefinition.remarks))
+            {
+                lines.Add(propertyDefinition.remarks + '\n');
+            }
         }
 
         // - example -
@@ -1608,6 +1686,11 @@ public static class Converter
         {
             lines.Add("\n## Description\n");
             lines.Add(functionDefinition.briefDescription + '\n');
+
+            if(!String.IsNullOrEmpty(functionDefinition.remarks))
+            {
+                lines.Add(functionDefinition.remarks + '\n');
+            }
         }
 
         // - example -
