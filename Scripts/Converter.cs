@@ -221,9 +221,9 @@ public static class Converter
 
         nodeClone.InnerXml = nodeClone.InnerXml.Replace("&lt;", "<template>")
                                                .Replace("&gt;", "</template>")
-                                               .Replace("const ", "")
-                                               .Replace("static ", "")
-                                               .Replace("readonly ", "")
+                                               .Replace("const", "")
+                                               .Replace("static", "")
+                                               .Replace("readonly", "")
                                                .Replace("out ", "")
                                                .Replace("<ref ", "__R__")
                                                .Replace("ref ", "")
@@ -535,6 +535,7 @@ public static class Converter
             case "detaileddescription":
             case "briefdescription":
             case "para":
+            case "parameterdescription":
             case "#text":
             break;
 
@@ -1000,6 +1001,7 @@ public static class Converter
 
         // - sort nodes -
         List<DefinitionNode> classNodes = new List<DefinitionNode>();
+        List<DefinitionNode> structNodes = new List<DefinitionNode>();
         List<DefinitionNode> interfaceNodes = new List<DefinitionNode>();
         List<DefinitionNode> enumNodes = new List<DefinitionNode>();
         List<DefinitionNode> functionNodes = new List<DefinitionNode>();
@@ -1009,9 +1011,18 @@ public static class Converter
 
         foreach(var kvp in definitionNodeMap)
         {
-            if(kvp.Value is ClassDefinition)
+            if(kvp.Value.protection == ProtectionLevel.Private)
+            {
+                outputLog.Append(". ignoring private definition: " + kvp.Key.name + '\n');
+                continue;
+            }
+            else if(kvp.Value is ClassDefinition)
             {
                 classNodes.Add(kvp.Key);
+            }
+            else if(kvp.Value is StructDefinition)
+            {
+                structNodes.Add(kvp.Key);
             }
             else if(kvp.Value is InterfaceDefinition)
             {
@@ -1049,6 +1060,11 @@ public static class Converter
         foreach(DefinitionNode classNode in classNodes)
         {
             CreateClassIndex(classNode, outputDirectory);
+        }
+
+        foreach(DefinitionNode structNode in structNodes)
+        {
+            CreateStructIndex(structNode, outputDirectory);
         }
 
         foreach(DefinitionNode interfaceNode in interfaceNodes)
@@ -1132,7 +1148,12 @@ public static class Converter
 
             foreach(var childNode in node.children)
             {
-                if(definitionNodeMap[childNode] is NamespaceDefinition)
+                IDefinition definition = definitionNodeMap[childNode];
+                if(definition.protection == ProtectionLevel.Private)
+                {
+                    continue;
+                }
+                else if(definition is NamespaceDefinition)
                 {
                     rootNodes.Insert(0, childNode);
                     outputLog.Append(". found inner namespace node: " + childNode.name + '\n');
@@ -1254,6 +1275,150 @@ public static class Converter
             if(!String.IsNullOrEmpty(classDefinition.remarks))
             {
                 lines.Add(classDefinition.remarks + '\n');
+            }
+        }
+
+        // - members -
+        if(const_props.Count > 0)
+        {
+            lines.Add("\n# Constant Properties");
+            lines.AddRange(GenerateMemberTable(const_props));
+        }
+
+        if(static_props.Count > 0)
+        {
+            lines.Add("\n# Static Properties");
+            lines.AddRange(GenerateMemberTable(static_props));
+        }
+
+        if(props.Count > 0)
+        {
+            lines.Add("\n# Properties");
+            lines.AddRange(GenerateMemberTable(props));
+        }
+
+        if(const_methods.Count > 0)
+        {
+            lines.Add("\n# Constant Methods");
+            lines.AddRange(GenerateMemberTable(const_methods));
+        }
+
+        if(static_methods.Count > 0)
+        {
+            lines.Add("\n# Static Methods");
+            lines.AddRange(GenerateMemberTable(static_methods));
+        }
+
+        if(methods.Count > 0)
+        {
+            lines.Add("\n# Public Methods");
+            lines.AddRange(GenerateMemberTable(methods));
+        }
+
+        // - write file -
+        File.WriteAllLines(filePath, lines.ToArray());
+    }
+
+    private static void CreateStructIndex(DefinitionNode structNode,
+                                          string outputDirectory)
+    {
+        string fileName = GeneratePageName(structNode) + ".md";
+        string filePath = outputDirectory + fileName;
+
+        outputLog.Append("\n--------------------\nCreating Struct Index: " + filePath + '\n');
+        outputLog.Append(". id [" + structNode.d_id + "]\n");
+
+        // - collect data -
+        StructDefinition structDefinition = definitionNodeMap[structNode] as StructDefinition;
+        List<DefinitionNode> const_props = new List<DefinitionNode>();
+        List<DefinitionNode> static_props = new List<DefinitionNode>();
+        List<DefinitionNode> props = new List<DefinitionNode>();
+        List<DefinitionNode> const_methods = new List<DefinitionNode>();
+        List<DefinitionNode> static_methods = new List<DefinitionNode>();
+        List<DefinitionNode> methods = new List<DefinitionNode>();
+
+        foreach(var childNode in structNode.children)
+        {
+            outputLog.Append(". processing " + childNode.name + '\n');
+
+            MemberDefinition memberDef = definitionNodeMap[childNode] as MemberDefinition;
+
+            if(memberDef is PropertyDefinition)
+            {
+                if(memberDef.isConst)
+                {
+                    const_props.Add(childNode);
+                }
+                else if(memberDef.isStatic)
+                {
+                    static_props.Add(childNode);
+                }
+                else
+                {
+                    props.Add(childNode);
+                }
+            }
+            else if(memberDef is FunctionDefinition)
+            {
+                if(memberDef.isConst)
+                {
+                    const_methods.Add(childNode);
+                }
+                else if(memberDef.isStatic)
+                {
+                    static_methods.Add(childNode);
+                }
+                else
+                {
+                    methods.Add(childNode);
+                }
+            }
+            else
+            {
+                outputLog.Append("WARNING: " + childNode.name
+                                 + " is an unrecognized member type ("
+                                 + (memberDef == null ? "NON-MEMBER" : memberDef.GetType().ToString())
+                                 + "). Ignoring.\n");
+            }
+        }
+
+        // - build index -
+        List<string> lines = new List<string>();
+
+        lines.Add("# " + structNode.name + "\n");
+        lines.Add("struct in " + DefinitionNode.GenerateFullName(structNode.parent)
+                  + '\n');
+
+        if(structDefinition.baseType != null)
+        {
+            lines.Add("inherits from: " + GenerateTypeMDString(structDefinition.baseType) + '\n');
+        }
+
+        if(structDefinition.interfaces.Count > 0)
+        {
+            StringBuilder interfaceString = new StringBuilder();
+            interfaceString.Append("implements interfaces: ");
+
+            foreach(TypeDescription interfaceType in structDefinition.interfaces)
+            {
+                interfaceString.Append(GenerateTypeMDString(interfaceType) + ", ");
+            }
+
+            interfaceString.Length -= 2;
+            interfaceString.Append('\n');
+
+            lines.Add(interfaceString.ToString());
+        }
+
+        // - desc -
+        if(!String.IsNullOrEmpty(structDefinition.briefDescription))
+        {
+            lines.Add("## Description\n");
+            lines.Add(structDefinition.briefDescription);
+
+            if(!String.IsNullOrEmpty(structDefinition.remarks))
+            {
+                lines.Add(structDefinition.remarks + '\n');
             }
         }
 
@@ -1677,7 +1842,12 @@ public static class Converter
             buildString.Append("static ");
         }
 
-        buildString.Append(GenerateTypeMDString(functionDefinition.type) + ' ');
+        if(functionDefinition.type != null)
+        {
+            // TODO(@jackson): Mark constructor separately?
+            buildString.Append(GenerateTypeMDString(functionDefinition.type) + ' ');
+        }
+
         buildString.Append(functionNode.name + '(');
 
         if(functionDefinition.parameters.Count > 0)
@@ -1708,7 +1878,8 @@ public static class Converter
         }
 
         // - returns -
-        if(functionDefinition.type.name != "void")
+        if(functionDefinition.type != null
+           && functionDefinition.type.name != "void")
         {
             lines.Add("\n## Returns\n");
             if(String.IsNullOrEmpty(functionDefinition.returnDescription))
@@ -1745,6 +1916,8 @@ public static class Converter
 
     private static string GenerateTypeMDString(TypeDescription typeDesc)
     {
+        if(typeDesc == null) { return string.Empty; }
+
         StringBuilder sb = new StringBuilder();
 
         if(typeDesc.isRef)
