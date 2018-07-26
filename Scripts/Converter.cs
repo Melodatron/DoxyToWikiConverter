@@ -1004,6 +1004,7 @@ public static class Converter
         List<DefinitionNode> structNodes = new List<DefinitionNode>();
         List<DefinitionNode> interfaceNodes = new List<DefinitionNode>();
         List<DefinitionNode> enumNodes = new List<DefinitionNode>();
+        List<DefinitionNode> enumValueNodes = new List<DefinitionNode>();
         List<DefinitionNode> functionNodes = new List<DefinitionNode>();
         List<DefinitionNode> propertyNodes = new List<DefinitionNode>();
         List<DefinitionNode> variableNodes = new List<DefinitionNode>();
@@ -1014,6 +1015,11 @@ public static class Converter
             if(kvp.Value.protection == ProtectionLevel.Private)
             {
                 outputLog.Append(". ignoring private definition: " + kvp.Key.name + '\n');
+                continue;
+            }
+            else if(kvp.Value is NamespaceDefinition)
+            {
+                outputLog.Append(". ignoring namespace definition: " + kvp.Key.name + '\n');
                 continue;
             }
             else if(kvp.Value is ClassDefinition)
@@ -1031,6 +1037,10 @@ public static class Converter
             else if(kvp.Value is EnumDefinition)
             {
                 enumNodes.Add(kvp.Key);
+            }
+            else if(kvp.Value is EnumValueDefinition)
+            {
+                enumValueNodes.Add(kvp.Key);
             }
             else if(kvp.Value is FunctionDefinition)
             {
@@ -1075,6 +1085,11 @@ public static class Converter
         foreach(DefinitionNode enumNode in enumNodes)
         {
             CreateEnumIndex(enumNode, outputDirectory);
+        }
+
+        foreach(DefinitionNode enumValueNode in enumValueNodes)
+        {
+            CreateEnumValueIndex(enumValueNode, outputDirectory);
         }
 
         foreach(DefinitionNode functionNode in functionNodes)
@@ -1584,14 +1599,7 @@ public static class Converter
         if(props.Count > 0)
         {
             lines.Add("\n# Properties");
-            lines.Add("| Name | Description |");
-            lines.Add("| - | - |");
-
-            foreach(var valueNode in props)
-            {
-                lines.Add("| " + valueNode.name
-                           + " | " + definitionNodeMap[valueNode].briefDescription + " |");
-            }
+            lines.AddRange(GenerateMemberTable(props));
         }
 
         // - write file -
@@ -1793,6 +1801,49 @@ public static class Converter
             }
         }
 
+        // - example -
+
+        // - seealso -
+
+        // - create file -
+        File.WriteAllLines(filePath, lines.ToArray());
+    }
+
+    private static void CreateEnumValueIndex(DefinitionNode valueNode,
+                                             string outputDirectory)
+    {
+        string fileName = GeneratePageName(valueNode) + ".md";
+        string filePath = outputDirectory + fileName;
+
+        outputLog.Append("\n--------------------\nCreating Enum Value Index: " + filePath + '\n');
+
+        EnumValueDefinition valueDefinition = definitionNodeMap[valueNode] as EnumValueDefinition;
+        List<string> lines = new List<string>();
+
+        // - title -
+        lines.Add("# " + GeneratePageLink(valueNode.parent)
+                  + '.' + valueNode.name + '\n');
+
+        // - description -
+        if(!String.IsNullOrEmpty(valueDefinition.briefDescription))
+        {
+            lines.Add("## Description\n");
+            lines.Add(valueDefinition.briefDescription + '\n');
+
+            if(!String.IsNullOrEmpty(valueDefinition.remarks))
+            {
+                lines.Add(valueDefinition.remarks + '\n');
+            }
+        }
+
+        // - initialized value -
+        if(!String.IsNullOrEmpty(valueDefinition.initializedValue))
+        {
+            lines.Add("## Initialized Value\n");
+            lines.Add("```c#");
+            lines.Add(valueDefinition.initializedValue);
+            lines.Add("```\n");
+        }
         // - example -
 
         // - seealso -
