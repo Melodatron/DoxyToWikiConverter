@@ -1208,11 +1208,18 @@ public static class Converter
 
         foreach(var childNode in classNode.children)
         {
+            IDefinition childDef = definitionNodeMap[childNode];
+            if(childDef.protection == ProtectionLevel.Private)
+            {
+                outputLog.Append(". ignoring private child: " + childNode.name + '\n');
+                continue;
+            }
+
             outputLog.Append(". processing " + childNode.name + '\n');
 
-            MemberDefinition memberDef = definitionNodeMap[childNode] as MemberDefinition;
-
-            if(memberDef is PropertyDefinition)
+            MemberDefinition memberDef = childDef as MemberDefinition;
+            if(memberDef is PropertyDefinition
+               || memberDef is VariableDefinition)
             {
                 if(memberDef.isConst)
                 {
@@ -1354,11 +1361,18 @@ public static class Converter
 
         foreach(var childNode in structNode.children)
         {
+            IDefinition childDef = definitionNodeMap[childNode];
+            if(childDef.protection == ProtectionLevel.Private)
+            {
+                outputLog.Append(". ignoring private child: " + childNode.name + '\n');
+                continue;
+            }
+
             outputLog.Append(". processing " + childNode.name + '\n');
 
-            MemberDefinition memberDef = definitionNodeMap[childNode] as MemberDefinition;
-
-            if(memberDef is PropertyDefinition)
+            MemberDefinition memberDef = childDef as MemberDefinition;
+            if(memberDef is PropertyDefinition
+               || memberDef is VariableDefinition)
             {
                 if(memberDef.isConst)
                 {
