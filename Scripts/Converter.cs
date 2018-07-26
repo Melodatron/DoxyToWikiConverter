@@ -1205,6 +1205,7 @@ public static class Converter
         List<DefinitionNode> const_methods = new List<DefinitionNode>();
         List<DefinitionNode> static_methods = new List<DefinitionNode>();
         List<DefinitionNode> methods = new List<DefinitionNode>();
+        List<DefinitionNode> events = new List<DefinitionNode>();
 
         foreach(var childNode in classNode.children)
         {
@@ -1248,6 +1249,10 @@ public static class Converter
                 {
                     methods.Add(childNode);
                 }
+            }
+            else if(memberDef is EventDefinition)
+            {
+                events.Add(childNode);
             }
             else
             {
@@ -1303,38 +1308,44 @@ public static class Converter
         // - members -
         if(const_props.Count > 0)
         {
-            lines.Add("\n# Constant Properties");
+            lines.Add("\n## Constant Properties");
             lines.AddRange(GenerateMemberTable(const_props));
         }
 
         if(static_props.Count > 0)
         {
-            lines.Add("\n# Static Properties");
+            lines.Add("\n## Static Properties");
             lines.AddRange(GenerateMemberTable(static_props));
         }
 
         if(props.Count > 0)
         {
-            lines.Add("\n# Properties");
+            lines.Add("\n## Properties");
             lines.AddRange(GenerateMemberTable(props));
         }
 
         if(const_methods.Count > 0)
         {
-            lines.Add("\n# Constant Methods");
+            lines.Add("\n## Constant Methods");
             lines.AddRange(GenerateMemberTable(const_methods));
         }
 
         if(static_methods.Count > 0)
         {
-            lines.Add("\n# Static Methods");
+            lines.Add("\n## Static Methods");
             lines.AddRange(GenerateMemberTable(static_methods));
         }
 
         if(methods.Count > 0)
         {
-            lines.Add("\n# Public Methods");
+            lines.Add("\n## Public Methods");
             lines.AddRange(GenerateMemberTable(methods));
+        }
+
+        if(events.Count > 0)
+        {
+            lines.Add("\n## Events");
+            lines.AddRange(GenerateMemberTable(events));
         }
 
         // - write file -
@@ -1358,6 +1369,7 @@ public static class Converter
         List<DefinitionNode> const_methods = new List<DefinitionNode>();
         List<DefinitionNode> static_methods = new List<DefinitionNode>();
         List<DefinitionNode> methods = new List<DefinitionNode>();
+        List<DefinitionNode> events = new List<DefinitionNode>();
 
         foreach(var childNode in structNode.children)
         {
@@ -1401,6 +1413,10 @@ public static class Converter
                 {
                     methods.Add(childNode);
                 }
+            }
+            else if(memberDef is EventDefinition)
+            {
+                events.Add(childNode);
             }
             else
             {
@@ -1454,38 +1470,44 @@ public static class Converter
         // - members -
         if(const_props.Count > 0)
         {
-            lines.Add("\n# Constant Properties");
+            lines.Add("\n## Constant Properties");
             lines.AddRange(GenerateMemberTable(const_props));
         }
 
         if(static_props.Count > 0)
         {
-            lines.Add("\n# Static Properties");
+            lines.Add("\n## Static Properties");
             lines.AddRange(GenerateMemberTable(static_props));
         }
 
         if(props.Count > 0)
         {
-            lines.Add("\n# Properties");
+            lines.Add("\n## Properties");
             lines.AddRange(GenerateMemberTable(props));
         }
 
         if(const_methods.Count > 0)
         {
-            lines.Add("\n# Constant Methods");
+            lines.Add("\n## Constant Methods");
             lines.AddRange(GenerateMemberTable(const_methods));
         }
 
         if(static_methods.Count > 0)
         {
-            lines.Add("\n# Static Methods");
+            lines.Add("\n## Static Methods");
             lines.AddRange(GenerateMemberTable(static_methods));
         }
 
         if(methods.Count > 0)
         {
-            lines.Add("\n# Public Methods");
+            lines.Add("\n## Public Methods");
             lines.AddRange(GenerateMemberTable(methods));
+        }
+
+        if(events.Count > 0)
+        {
+            lines.Add("\n## Events");
+            lines.AddRange(GenerateMemberTable(events));
         }
 
         // - write file -
@@ -1550,13 +1572,13 @@ public static class Converter
         // - members -
         if(props.Count > 0)
         {
-            lines.Add("\n# Properties");
+            lines.Add("\n## Properties");
             lines.AddRange(GenerateMemberTable(props));
         }
 
         if(methods.Count > 0)
         {
-            lines.Add("\n# Methods");
+            lines.Add("\n## Methods");
             lines.AddRange(GenerateMemberTable(methods));
         }
 
@@ -1612,7 +1634,7 @@ public static class Converter
 
         if(props.Count > 0)
         {
-            lines.Add("\n# Properties");
+            lines.Add("\n## Properties");
             lines.AddRange(GenerateMemberTable(props));
         }
 
