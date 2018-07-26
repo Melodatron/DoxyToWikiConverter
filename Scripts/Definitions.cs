@@ -63,6 +63,7 @@ public abstract class MemberDefinition : IDefinition
     public TypeDescription type = new TypeDescription();
     public bool isConst = false;
     public bool isStatic = false;
+    public string initializedValue = null;
 }
 
 public class FunctionDefinition : MemberDefinition
@@ -71,33 +72,33 @@ public class FunctionDefinition : MemberDefinition
     public string returnDescription = null;
 }
 
-public class VariableDefinition     : MemberDefinition
-{
-    public string initializedValue = null;
-}
-
 public class PropertyDefinition     : MemberDefinition
 {
     public ProtectionLevel getterProtection = ProtectionLevel._UNKNOWN_;
     public ProtectionLevel setterProtection = ProtectionLevel._UNKNOWN_;
 }
 
+public class VariableDefinition     : MemberDefinition {}
 public class EventDefinition        : MemberDefinition {}
 public class EnumDefinition         : MemberDefinition {}
 public class EnumValueDefinition    : MemberDefinition {}
 
 public class TypeDescription
 {
-    public string name;
-    public string d_id;
-    public bool isRef;
+    public string name = string.Empty;
+    public string d_id = null;
+    public bool isRef = false;
+    public bool isArray = false;
 
-    public List<TypeDescription> templatedTypes;
+    public List<TypeDescription> templatedTypes = null;
 }
 
 public class FunctionParameter
 {
-    public string name;
-    public TypeDescription type;
-    public string description;
+    public string name = string.Empty;
+    public TypeDescription type = null;
+    public string description = null;
+
+    public bool isOutParam = false;
+    public bool isRefParam = false;
 }

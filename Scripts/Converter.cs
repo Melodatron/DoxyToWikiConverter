@@ -5,12 +5,13 @@ using System.Collections.Generic;
 using System.IO;
 
 // TASKS
-// . complete function return values
-// . complete detailed description
-// . remarks is in detailedDescription!
+// . put definitions into codeblocks?
+// . output Structs and Namespaces
 // . add GitHub links
 // . layout/titling work
-// . unignore location
+// . support location
+// . support derivedcompoundref
+// . support "this" param
 // . inbodydescription?
 
 public enum WikiMode
@@ -46,6 +47,7 @@ public static class Converter
         { "basecompoundref", Converter.ProcessBaseCompoundRef },
         { "param", Converter.ProcessParam },
         { "initializer", Converter.ProcessInitializer },
+        { "enumvalue", Converter.ProcessEnumValue },
     };
 
     private static List<string> nodesToSkip = new List<string>()
@@ -58,6 +60,10 @@ public static class Converter
         "collaborationgraph",
         "inbodydescription",
         "location",
+        "derivedcompoundref",
+        "templateparamlist",
+        "reimplements",
+        "reimplementedby",
     };
 
     public delegate IDefinition CreateDefinitionDelegate(XmlNode xmlNode);
@@ -115,7 +121,10 @@ public static class Converter
         {
             foreach(string filePath in Directory.GetFiles(directory, "*.xml", SearchOption.AllDirectories))
             {
-                ParseFile(filePath);
+                if(Path.GetFileName(filePath) != "index.xml")
+                {
+                    ParseFile(filePath);
+                }
             }
             Converter.BuildWiki(outputDirectory);
         }
@@ -206,13 +215,6 @@ public static class Converter
         }
     }
 
-    private static string ParseXMLString(string xmlString)
-    {
-        return xmlString.Replace("&lt; ", "[").Replace("&lt;", "[")
-                        .Replace(" &gt;", "]").Replace("&gt;", "]")
-                        .Replace("&apos;","\'");
-    }
-
     private static TypeDescription ParseTypeDescription(XmlNode node)
     {
         XmlNode nodeClone = node.CloneNode(true);
@@ -221,7 +223,12 @@ public static class Converter
                                                .Replace("&gt;", "</template>")
                                                .Replace("const ", "")
                                                .Replace("static ", "")
-                                               .Replace("readonly ", "");
+                                               .Replace("readonly ", "")
+                                               .Replace("out ", "")
+                                               .Replace("<ref ", "__R__")
+                                               .Replace("ref ", "")
+                                               .Replace("__R__", "<ref ")
+                                               .Replace("[]", "<array/>");
 
         outputLog.Append(". member type (INNERXML): " + nodeClone.InnerXml + '\n');
 
@@ -252,12 +259,24 @@ public static class Converter
     {
         TypeDescription[] retVal;
 
+        bool isTemplated = (node.NextSibling != null
+                            && node.NextSibling.Name == "template");
+
+        bool isArray = (node.NextSibling != null && node.NextSibling.Name == "array");
+        isArray |= (isTemplated && node.NextSibling.NextSibling != null
+                    && node.NextSibling.NextSibling.Name == "array");
+
         switch(node.Name)
         {
             // Handled by previous node
             case "template":
             {
                 outputLog.Append(".t");
+            }
+            return null;
+            case "array":
+            {
+                outputLog.Append(".a");
             }
             return null;
 
@@ -268,13 +287,18 @@ public static class Converter
 
                 for(int i = 0; i < typeNames.Length; ++i)
                 {
+                    bool isThisTypeArray = (isArray && i == typeNames.Length - 1);
+
                     retVal[i] = new TypeDescription()
                     {
                         name = typeNames[i],
                         isRef = false,
+                        isArray = isThisTypeArray,
                     };
 
-                    outputLog.Append(".I:" + retVal[i].name + ',');
+                    outputLog.Append(".I:" + retVal[i].name
+                                     + (isThisTypeArray ? "[ARRAY]" : "")
+                                     + ',');
                 }
 
                 outputLog.Length -= 1;
@@ -289,11 +313,13 @@ public static class Converter
                     d_id = node.Attributes["refid"].Value,
                     isRef = true,
                 };
+                desc.isArray = isArray;
 
                 retVal = new TypeDescription[1];
                 retVal[0] = desc;
 
-                outputLog.Append(".R:" + desc.name);
+                outputLog.Append(".R:" + desc.name
+                                 + (isArray ? "[ARRAY]" : ""));
             }
             break;
 
@@ -305,8 +331,7 @@ public static class Converter
             break;
         }
 
-        if(node.NextSibling != null
-           && node.NextSibling.Name == "template")
+        if(isTemplated)
         {
             TypeDescription parentDesc = retVal[retVal.Length - 1];
             parentDesc.templatedTypes = new List<TypeDescription>();
@@ -433,13 +458,13 @@ public static class Converter
     // --- Basic Nodes ---
     private static void ProcessName(XmlNode node, DefinitionNode parentNode)
     {
-        parentNode.name = ParseXMLString(node.InnerXml);
+        parentNode.name = node.InnerText.Trim().Replace("< ", "<").Replace(" >", ">");
         outputLog.Append(". name is " + parentNode.name + '\n');
     }
 
     private static void ProcessCompoundName(XmlNode node, DefinitionNode parentNode)
     {
-        string[] nameParts = ParseXMLString(node.InnerXml).Replace("::", ".").Split('.');
+        string[] nameParts = node.InnerText.Replace("::", ".").Split('.');
         parentNode.name = nameParts[nameParts.Length - 1];
         outputLog.Append(". name is " + parentNode.name + '\n');
     }
@@ -475,7 +500,7 @@ public static class Converter
 
     private static void ProcessParam(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        string paramName = ParseXMLString(xmlNode["declname"].InnerXml);
+        string paramName = xmlNode["declname"].InnerText;
 
         FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
         FunctionParameter parameter = GetOrCreateFunctionParameter(definition, paramName);
@@ -485,128 +510,178 @@ public static class Converter
 
     private static void ProcessDetailedDescription(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        foreach(XmlNode childNode in xmlNode)
-        {
-            ParseDetailedDescriptionNode(childNode, parentNode, DescriptionContext.Remarks);
-        }
+        outputLog.Append(". detailed description (DEBUG): ");
+
+        IDefinition definition = definitionNodeMap[parentNode];
+
+        StringBuilder sb = new StringBuilder();
+        ParseDescriptionXML(xmlNode, definition, sb);
+        definition.remarks = sb.ToString().Trim();
     }
 
-    private enum DescriptionContext
+    private static void ParseDescriptionXML(XmlNode node,
+                                            IDefinition definition,
+                                            StringBuilder currentString)
     {
-        Remarks,
-    }
+        outputLog.Append("START:" + node.Name + '-');
 
-    private static void ParseDetailedDescriptionNode(XmlNode xmlNode,
-                                                     DefinitionNode parentNode,
-                                                     DescriptionContext context)
-    {
-        outputLog.Append(". parsing " + xmlNode.Name + " node\n");
-
-        switch(xmlNode.Name)
+        // - open tag -
+        switch(node.Name)
         {
+            // ignore
+            case "parameternamelist":
+            return;
+
+            case "detaileddescription":
+            case "briefdescription":
             case "para":
+            case "#text":
+            break;
+
+            case "ulink":
             {
-                foreach(XmlNode childNode in xmlNode.ChildNodes)
-                {
-                    ParseDetailedDescriptionNode(childNode, parentNode, context);
-                }
+                currentString.Append('[');
+            }
+            break;
+
+            case "ref":
+            {
+                currentString.Append("[[");
             }
             break;
 
             case "parameterlist":
             {
-                FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
-
-                foreach(XmlNode childNode in xmlNode.ChildNodes)
+                if(!(definition is FunctionDefinition))
                 {
-                    if(childNode.Name != "parameteritem")
-                    {
-                        outputLog.Append("WARNING: Unexpected child node ("
-                                         + childNode.Name + ")\n");
-                        continue;
-                    }
-
-                    ParseParamDescription(childNode, definition);
+                    outputLog.Append("\nWARNING: Definition is not a function definition\n");
+                    return;
                 }
+
+                if(node.Attributes["kind"].Value != "param")
+                {
+                    outputLog.Append("\nWARNING: Unhandled parameterlist kind ("
+                                     + node.Attributes["kind"].Value + ")\n");
+                    return;
+                }
+            }
+            break;
+
+            case "parameteritem":
+            {
+                if(node.ChildNodes.Count != 2)
+                {
+                    outputLog.Append("\nWARNING: Unexpected child count = " + node.ChildNodes.Count + '\n');
+                }
+
+                if(node["parameternamelist"].ChildNodes.Count != 1)
+                {
+                    outputLog.Append("\nWARNING: Unexpected child count for parameternamelist = "
+                                     + node["parameternamelist"].ChildNodes.Count + '\n');
+                }
+
+                currentString = new StringBuilder();
             }
             break;
 
             case "simplesect":
             {
-                if(xmlNode.Attributes["kind"].Value == "return")
+                if(!(definition is FunctionDefinition))
                 {
-                    if(xmlNode.FirstChild != null)
-                    {
-                        FunctionDefinition definition = definitionNodeMap[parentNode] as FunctionDefinition;
-
-                        StringBuilder sb = new StringBuilder();
-                        ParseDescriptionXML(xmlNode.FirstChild, sb);
-
-                        definition.returnDescription = sb.ToString().Trim();
-                    }
+                    outputLog.Append("\nWARNING: Definition is not a function definition\n");
+                    return;
                 }
+
+                if(node.Attributes["kind"].Value != "return")
+                {
+                    outputLog.Append("\nWARNING: Unhandled simplesect kind ("
+                                     + node.Attributes["kind"].Value + ")\n");
+                    return;
+                }
+
+                currentString = new StringBuilder();
             }
             break;
 
             case "itemizedlist":
             {
-                StringBuilder sb = new StringBuilder();
-                foreach(XmlNode childNode in xmlNode.ChildNodes)
-                {
-                    if(childNode.Name == "listitem")
-                    {
-                        sb.Append("- ");
+                currentString.Append('\n');
+            }
+            break;
 
-                        StringBuilder liSB = new StringBuilder();
-                        ParseDescriptionXML(childNode.FirstChild, liSB);
-                        sb.Append(liSB.ToString().Trim());
-
-                        sb.Append('\n');
-                    }
-                    else
-                    {
-                        outputLog.Append("WARNING: Unexpected child node " + childNode.Name + '\n');
-                    }
-                }
-
-                if(context == DescriptionContext.Remarks)
-                {
-                    if(definitionNodeMap[parentNode].remarks == null)
-                    {
-                        definitionNodeMap[parentNode].remarks = sb.ToString().Trim();
-                    }
-                    else
-                    {
-                        definitionNodeMap[parentNode].remarks += sb.ToString().Trim();
-                    }
-                }
-                else
-                {
-                    outputLog.Append("WARNING: Not implemented lists outside of remarks\n");
-                }
+            case "listitem":
+            {
+                currentString.Append("- ");
             }
             break;
 
             default:
             {
-                outputLog.Append("WARNING: Unhandled detailed description child node\n");
+                outputLog.Append("\nWARNING: Unrecognized tag in description (" + node.Name + ")\n");
             }
-            return;
+            break;
         }
-    }
 
-    private static void ParseParamDescription(XmlNode xmlNode, FunctionDefinition definition)
-    {
-        if(xmlNode["parameterdescription"].FirstChild != null)
+        // - innards -
+        if(node.HasChildNodes)
         {
-            string paramName = ParseXMLString(xmlNode["parameternamelist"]["parametername"].InnerXml);
-
-            FunctionParameter parameter = GetOrCreateFunctionParameter(definition, paramName);
-
-            StringBuilder sb = new StringBuilder();
-            ParseDescriptionXML(xmlNode["parameterdescription"].FirstChild, sb);
-            parameter.description = sb.ToString().Trim();
+            foreach(XmlNode childNode in node.ChildNodes)
+            {
+                ParseDescriptionXML(childNode, definition, currentString);
+            }
         }
+        else if(node.Value != null)
+        {
+            currentString.Append(node.InnerText);
+        }
+
+        // - close tag -
+        switch(node.Name)
+        {
+            case "para":
+            {
+                currentString.Append("\n\n");
+            }
+            break;
+
+            case "ulink":
+            {
+                currentString.Append("](" + node.Attributes["url"].Value + ")");
+            }
+            break;
+
+            case "ref":
+            {
+                currentString.Append("]]");
+            }
+            break;
+
+            case "parameteritem":
+            {
+                string paramName = node["parameternamelist"]["parametername"].InnerText;
+
+                FunctionDefinition functionDefinition = definition as FunctionDefinition;
+
+                FunctionParameter param = GetOrCreateFunctionParameter(functionDefinition, paramName);
+                param.description = currentString.ToString().Trim();
+            }
+            break;
+
+            case "simplesect":
+            {
+                FunctionDefinition functionDefinition = definition as FunctionDefinition;
+                functionDefinition.returnDescription = currentString.ToString().Trim();
+            }
+            break;
+
+            case "listitem":
+            {
+                currentString.Length -= 1; // remove extra '\n'
+            }
+            break;
+        }
+
+        outputLog.Append("END:" + node.Name + '-');
     }
 
     private static void ProcessBaseCompoundRef(XmlNode xmlNode, DefinitionNode parentNode)
@@ -643,7 +718,7 @@ public static class Converter
 
         if(ignoredKinds.Contains(nodeKind))
         {
-            outputLog.Append(". ignoring node of kind \'" + xmlNode.Name + "\'\n");
+            outputLog.Append(". ignoring node of kind \'" + nodeKind + "\'\n");
             return;
         }
 
@@ -818,95 +893,42 @@ public static class Converter
 
     private static void ProcessEnumValue(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        outputLog.Append("WARNING: not implemented\n");
+        string valueId = xmlNode.Attributes["id"].Value;
+
+        // - set parenting -
+        DefinitionNode valueNode = GetOrCreateNodeWithDefinition(xmlNode.Attributes["id"].Value,
+                                                                 nodeKindCreationMap["enumvalue"],
+                                                                 xmlNode);
+
+        if(valueNode.parent != null
+           && valueNode.parent != parentNode)
+        {
+            outputLog.Append("WARNING: valueNode.parent ["
+                             + valueNode.parent.d_id
+                             + "] != parentNode ["
+                             + (parentNode == null ? "NULL" : parentNode.d_id)
+                             + "]\n");
+        }
+        valueNode.parent = parentNode;
+
+        if(!parentNode.children.Contains(valueNode))
+        {
+            outputLog.Append(". adding enum value [" + valueId + "] to ["
+                             + parentNode.d_id + "]\n");
+
+            parentNode.children.Add(valueNode);
+        }
+
+        ProcessChildNodes(xmlNode, valueNode);
     }
 
     private static void ProcessBriefDescription(XmlNode xmlNode, DefinitionNode parentNode)
     {
-        if(xmlNode.FirstChild != null)
-        {
-            StringBuilder retVal = new StringBuilder();
-            ParseDescriptionXML(xmlNode.FirstChild, retVal);
+        IDefinition definition = definitionNodeMap[parentNode];
+        StringBuilder retVal = new StringBuilder();
+        ParseDescriptionXML(xmlNode, definition, retVal);
 
-            IDefinition definition = definitionNodeMap[parentNode];
-            definition.briefDescription = retVal.ToString().Trim();
-        }
-    }
-
-    private static void ParseDescriptionXML(XmlNode node, StringBuilder result)
-    {
-        bool isTagUnrecognised = false;
-
-        // - open tag -
-        switch(node.Name)
-        {
-            case "para":
-            case "#text":
-            break;
-
-            case "ulink":
-            {
-                result.Append('[');
-            }
-            break;
-
-            case "ref":
-            {
-                result.Append("[[");
-            }
-            break;
-
-            default:
-            {
-                outputLog.Append("WARNING: Unrecognized tag in description (" + node.Name + ")\n");
-                isTagUnrecognised = true;
-
-                result.Append("!START." + node.Name + "!");
-            }
-            break;
-        }
-
-        // - innards -
-        if(node.HasChildNodes)
-        {
-            foreach(XmlNode childNode in node.ChildNodes)
-            {
-                ParseDescriptionXML(childNode, result);
-            }
-        }
-        else if(node.Value != null)
-        {
-            result.Append(ParseXMLString(node.Value));
-        }
-
-        // - close tag -
-        if(isTagUnrecognised)
-        {
-            result.Append("!END." + node.Name + "!");
-        }
-        else
-        {
-            switch(node.Name)
-            {
-                case "para":
-                {
-                    result.Append("\n\n");
-                }
-                break;
-
-                case "ulink":
-                {
-                    result.Append("](" + node.Attributes["url"].Value + ")");
-                }
-                break;
-
-                case "ref":
-                {
-                    result.Append("]]");
-                }
-                break;
-            }
-        }
+        definition.briefDescription = retVal.ToString().Trim();
     }
 
     private static void ProcessInitializer(XmlNode node, DefinitionNode parentNode)
@@ -914,7 +936,7 @@ public static class Converter
         if(node.FirstChild == null) { return; }
 
         outputLog.Append(". adding initializedValue\n");
-        VariableDefinition definition = definitionNodeMap[parentNode] as VariableDefinition;
+        MemberDefinition definition = definitionNodeMap[parentNode] as MemberDefinition;
         definition.initializedValue = node.InnerText.Substring(2).Replace("<", "[").Replace(">", "]").Trim(); // skip "= "
     }
 
@@ -1084,7 +1106,7 @@ public static class Converter
             {
                 rootNodes.Add(kvp.Key);
 
-                outputLog.Append(". found root node: " + kvp.Key.name);
+                outputLog.Append(". found root node: " + kvp.Key.name + '\n');
             }
         }
 
@@ -1093,7 +1115,7 @@ public static class Converter
             DefinitionNode node = rootNodes[0];
             rootNodes.RemoveAt(0);
 
-            outputLog.Append(". new namespace section: " + node.name);
+            outputLog.Append(". new namespace section: " + node.name + '\n');
 
             StringBuilder fullNamespace = new StringBuilder();
             DefinitionNode nameNode = node;
@@ -1113,13 +1135,12 @@ public static class Converter
                 if(definitionNodeMap[childNode] is NamespaceDefinition)
                 {
                     rootNodes.Insert(0, childNode);
-                    outputLog.Append(". found inner namespace node: " + childNode.name);
+                    outputLog.Append(". found inner namespace node: " + childNode.name + '\n');
                 }
                 else
                 {
-                    lines.Add("| [" + childNode.name + "]("
-                              + DefinitionNode.GenerateFullName(childNode) + ") "
-                              + "| " + definitionNodeMap[childNode].briefDescription + " |");
+                    lines.Add("| " + GeneratePageLink(childNode)
+                              + " | " + definitionNodeMap[childNode].briefDescription + " |");
                 }
             }
 
@@ -1134,7 +1155,7 @@ public static class Converter
     private static void CreateClassIndex(DefinitionNode classNode,
                                          string outputDirectory)
     {
-        string fileName = DefinitionNode.GenerateFullName(classNode) + ".md";
+        string fileName = GeneratePageName(classNode) + ".md";
         string filePath = outputDirectory + fileName;
 
         outputLog.Append("\n--------------------\nCreating Class Index: " + filePath + '\n');
@@ -1280,7 +1301,7 @@ public static class Converter
     private static void CreateInterfaceIndex(DefinitionNode interfaceNode,
                                              string outputDirectory)
     {
-        string fileName = DefinitionNode.GenerateFullName(interfaceNode) + ".md";
+        string fileName = GeneratePageName(interfaceNode) + ".md";
         string filePath = outputDirectory + fileName;
 
         outputLog.Append("\n--------------------\nCreating Interface Index: " + filePath + '\n');
@@ -1352,7 +1373,7 @@ public static class Converter
     private static void CreateEnumIndex(DefinitionNode enumNode,
                                         string outputDirectory)
     {
-        string fileName = DefinitionNode.GenerateFullName(enumNode) + ".md";
+        string fileName = GeneratePageName(enumNode) + ".md";
         string filePath = outputDirectory + fileName;
 
         outputLog.Append("\n--------------------\nCreating Enum Index: " + filePath + '\n');
@@ -1398,7 +1419,14 @@ public static class Converter
         if(props.Count > 0)
         {
             lines.Add("\n# Properties");
-            lines.AddRange(GenerateMemberTable(props));
+            lines.Add("| Name | Description |");
+            lines.Add("| - | - |");
+
+            foreach(var valueNode in props)
+            {
+                lines.Add("| " + valueNode.name
+                           + " | " + definitionNodeMap[valueNode].briefDescription + " |");
+            }
         }
 
         // - write file -
@@ -1414,9 +1442,8 @@ public static class Converter
 
         foreach(var memberNode in memberEntryNodes)
         {
-            MemberDefinition memberDef = definitionNodeMap[memberNode] as MemberDefinition;
-            retVal.Add("| [" + memberNode.name + "](" + DefinitionNode.GenerateFullName(memberNode) + ") "
-                       + "| " + memberDef.briefDescription + " |");
+            retVal.Add("| " + GeneratePageLink(memberNode)
+                       + " | " + definitionNodeMap[memberNode].briefDescription + " |");
         }
 
         return retVal;
@@ -1425,7 +1452,7 @@ public static class Converter
     private static void CreateVariableIndex(DefinitionNode variableNode,
                                             string outputDirectory)
     {
-        string fileName = DefinitionNode.GenerateFullName(variableNode) + ".md";
+        string fileName = GeneratePageName(variableNode) + ".md";
         string filePath = outputDirectory + fileName;
 
         outputLog.Append("\n--------------------\nCreating Variable Index: " + filePath + '\n');
@@ -1435,9 +1462,8 @@ public static class Converter
         StringBuilder buildString = null;
 
         // - title -
-        lines.Add("# [" + variableNode.parent.name + "]("
-                  + DefinitionNode.GenerateFullName(variableNode.parent)
-                  + ")." + variableNode.name + '\n');
+        lines.Add("# " + GeneratePageLink(variableNode.parent)
+                  + '.' + variableNode.name + '\n');
 
         // - definition -
         buildString = new StringBuilder();
@@ -1490,7 +1516,7 @@ public static class Converter
     private static void CreateEventIndex(DefinitionNode eventNode,
                                          string outputDirectory)
     {
-        string fileName = DefinitionNode.GenerateFullName(eventNode) + ".md";
+        string fileName = GeneratePageName(eventNode) + ".md";
         string filePath = outputDirectory + fileName;
 
         outputLog.Append("\n--------------------\nCreating Event Index: " + filePath + '\n');
@@ -1500,9 +1526,8 @@ public static class Converter
         StringBuilder buildString = null;
 
         // - title -
-        lines.Add("# [" + eventNode.parent.name + "]("
-                  + DefinitionNode.GenerateFullName(eventNode.parent)
-                  + ")." + eventNode.name + '\n');
+        lines.Add("# " + GeneratePageLink(eventNode.parent)
+                  + '.' + eventNode.name + '\n');
 
         // - definition -
         buildString = new StringBuilder();
@@ -1541,7 +1566,7 @@ public static class Converter
     private static void CreatePropertyIndex(DefinitionNode propertyNode,
                                             string outputDirectory)
     {
-        string fileName = DefinitionNode.GenerateFullName(propertyNode) + ".md";
+        string fileName = GeneratePageName(propertyNode) + ".md";
         string filePath = outputDirectory + fileName;
 
         outputLog.Append("\n--------------------\nCreating Property Index: " + filePath + '\n');
@@ -1551,9 +1576,8 @@ public static class Converter
         StringBuilder buildString = null;
 
         // - title -
-        lines.Add("# [" + propertyNode.parent.name + "]("
-                  + DefinitionNode.GenerateFullName(propertyNode.parent)
-                  + ")." + propertyNode.name + '\n');
+        lines.Add("# " + GeneratePageLink(propertyNode.parent)
+                  + '.' + propertyNode.name + '\n');
 
         // - definition -
         buildString = new StringBuilder();
@@ -1631,7 +1655,7 @@ public static class Converter
         //
         // SeeAlso:
 
-        string fileName = DefinitionNode.GenerateFullName(functionNode) + ".md";
+        string fileName = GeneratePageName(functionNode) + ".md";
         string filePath = outputDirectory + fileName;
 
         outputLog.Append("\n--------------------\nCreating Function Index: " + filePath + '\n');
@@ -1641,9 +1665,8 @@ public static class Converter
         StringBuilder buildString = null;
 
         // - title -
-        lines.Add("# [" + functionNode.parent.name + "]("
-                  + DefinitionNode.GenerateFullName(functionNode.parent)
-                  + ")." + functionNode.name + '\n');
+        lines.Add("# " + GeneratePageLink(functionNode.parent)
+                  + '.' + functionNode.name + '\n');
 
         // - definition -
         buildString = new StringBuilder();
@@ -1729,7 +1752,7 @@ public static class Converter
             outputLog.Append(". resolving type ref id [" + typeDesc.d_id + "]\n");
 
             DefinitionNode typeNode = FindDefinitionNodeById(typeDesc.d_id);
-            sb.Append("[" + typeNode.name + "](" + DefinitionNode.GenerateFullName(typeNode) + ")");
+            sb.Append("[" + typeNode.name + "](" + GeneratePageName(typeNode) + ")");
         }
         else
         {
@@ -1738,7 +1761,7 @@ public static class Converter
 
         if(typeDesc.templatedTypes != null)
         {
-            sb.Append('[');
+            sb.Append("\\<");
 
             foreach(TypeDescription innerDesc in typeDesc.templatedTypes)
             {
@@ -1747,9 +1770,24 @@ public static class Converter
 
             sb.Length -= 1;
 
-            sb.Append(']');
+            sb.Append('>');
+        }
+
+        if(typeDesc.isArray)
+        {
+            sb.Append("[]");
         }
 
         return sb.ToString();
+    }
+
+    private static string GeneratePageName(DefinitionNode node)
+    {
+        return DefinitionNode.GenerateFullName(node).Replace("<", "[").Replace(">", "]");
+    }
+
+    private static string GeneratePageLink(DefinitionNode node)
+    {
+        return("[" + node.name.Replace("<", "\\<") + "](" + GeneratePageName(node) + ")");
     }
 }
